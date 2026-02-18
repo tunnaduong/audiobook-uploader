@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir /ah \"C:\\\\dev\\\\audiobook-uploader\")",
+      "Bash(dir:*)",
+      "Bash(powershell -Command:*)"
+    ]
+  }
+}

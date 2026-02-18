@@ -1,0 +1,51 @@
+{
+  "name": "audiobook-uploader",
+  "version": "0.1.0",
+  "description": "Desktop app for automating audiobook + cooking video content creation",
+  "main": "dist/electron/main.js",
+  "homepage": "./",
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run build:electron && npm run build:renderer && electron-builder",
+    "build:electron": "tsc --project tsconfig.electron.json",
+    "build:renderer": "vite build",
+    "build:win": "npm run build:electron && npm run build:renderer && electron-builder --win",
+    "build:mac": "npm run build:electron && npm run build:renderer && electron-builder --mac",
+    "build:preview": "vite build",
+    "preview": "vite preview",
+    "type-check": "tsc --noEmit",
+    "electron:dev": "electron .",
+    "electron:dev:watch": "nodemon --exec electron . --watch dist/electron",
+    "start": "npm run build && npm run electron:dev",
+    "test": "vitest",
+    "lint": "eslint src --ext .ts,.tsx"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "axios": "^1.6.0",
+    "sql.js": "^1.8.0",
+    "dotenv": "^16.3.1",
+    "decompress": "^4.2.1",
+    "https-proxy-agent": "^7.0.2"
+  },
+  "devDependencies": {
+    "electron": "^27.0.0",
+    "electron-builder": "^24.6.4",
+    "vite": "^5.0.0",
+    "@vitejs/plugin-react": "^4.2.0",
+    "typescript": "^5.3.2",
+    "@types/react": "^18.2.33",
+    "@types/react-dom": "^18.2.14",
+    "@types/node": "^20.10.0",
+    "react-router-dom": "^6.20.0",
+    "tailwindcss": "^3.3.6",
+    "postcss": "^8.4.31",
+    "autoprefixer": "^10.4.16",
+    "electron-reloader": "^1.2.0",
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
