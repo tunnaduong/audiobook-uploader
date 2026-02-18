@@ -6,40 +6,53 @@ import { createLogger } from './logger'
 
 const logger = createLogger('douyin-downloader-setup')
 
-const DOWNLOADER_PATH = path.join(
-  __dirname,
-  '..',
-  '..',
-  'bin',
-  'douyin-downloader'
-)
+/**
+ * Resolve douyin-downloader path - works in both dev and production
+ * In development: __dirname = src/utils
+ * In production: __dirname = dist/utils
+ * Both resolve up to project root, then down to bin/douyin-downloader
+ */
+function getDouyinDownloaderPath_Static(): string {
+  // Try multiple possible paths (dev and production)
+  const possiblePaths = [
+    // Development: ../../../bin/douyin-downloader
+    path.join(__dirname, '..', '..', '..', 'bin', 'douyin-downloader'),
+    // Production/dist: ../../../bin/douyin-downloader (same because src and dist both 2 levels up)
+    path.join(__dirname, '..', '..', 'bin', 'douyin-downloader'),
+    // Also try current working directory + bin
+    path.join(process.cwd(), 'bin', 'douyin-downloader'),
+    // And absolute path
+    'C:\\dev\\audiobook-uploader\\bin\\douyin-downloader',
+  ]
+
+  for (const downloaderPath of possiblePaths) {
+    if (fs.existsSync(downloaderPath)) {
+      const scriptPath = path.join(downloaderPath, 'DouYinCommand.py')
+      if (fs.existsSync(scriptPath)) {
+        logger.info(`✅ douyin-downloader found at: ${downloaderPath}`)
+        return downloaderPath
+      }
+    }
+  }
+
+  // If none found, show all attempts
+  logger.error(`❌ douyin-downloader not found. Tried paths:`)
+  for (const p of possiblePaths) {
+    logger.error(`   - ${p}`)
+  }
+
+  throw new Error(
+    `douyin-downloader not found in any expected location.\n\n` +
+    `Paths tried:\n${possiblePaths.map(p => `  - ${p}`).join('\n')}\n\n` +
+    `Installation:\n` +
+    `1. cd "C:\\dev\\audiobook-uploader\\bin\\douyin-downloader"\n` +
+    `2. pip install -r requirements.txt`
+  )
+}
 
 export async function getDouyinDownloaderPath(): Promise<string> {
   try {
-    const downloaderPath = DOWNLOADER_PATH
-
-    // Check if directory exists
-    if (!fs.existsSync(downloaderPath)) {
-      logger.error(`❌ douyin-downloader not found at: ${downloaderPath}`)
-      throw new Error(
-        `douyin-downloader not installed at ${downloaderPath}\n\n` +
-        `Installation:\n` +
-        `1. cd "${DOWNLOADER_PATH}"\n` +
-        `2. pip install -r requirements.txt`
-      )
-    }
-
-    // Check if DouYinCommand.py exists
-    const scriptPath = path.join(downloaderPath, 'DouYinCommand.py')
-    if (!fs.existsSync(scriptPath)) {
-      throw new Error(
-        `DouYinCommand.py not found at ${scriptPath}\n` +
-        `Please ensure douyin-downloader is properly installed.`
-      )
-    }
-
-    logger.info(`✅ douyin-downloader found at: ${downloaderPath}`)
-    return downloaderPath
+    return getDouyinDownloaderPath_Static()
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error)
     logger.error(`Failed to locate douyin-downloader: ${errorMsg}`)
