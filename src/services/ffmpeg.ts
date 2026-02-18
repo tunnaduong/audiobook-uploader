@@ -58,60 +58,71 @@ function buildFilterGraph(
   return filterGraph
 }
 
+// Cache encoder detection result
+let cachedEncoder: { codec: string; options: string[] } | null = null
+
 // Get optimal FFmpeg encoder based on platform
 async function getVideoEncoder(): Promise<{ codec: string; options: string[] }> {
+  // Return cached result if available
+  if (cachedEncoder) {
+    return cachedEncoder
+  }
+
   const platform = process.platform
 
   if (platform === 'darwin') {
     // macOS - use hardware encoding
-    return {
+    cachedEncoder = {
       codec: 'h264_videotoolbox',
       options: ['-q:v', '4'],
     }
+    return cachedEncoder
   } else if (platform === 'win32') {
     // Windows - try hardware encoders in order: NVENC > Intel QSV > libx264
     const ffmpegPath = await getFFmpegPath()
 
-    // Try NVIDIA NVENC first (fastest)
+    let availableEncoders = ''
     try {
-      const { stdout: stdoutNvenc } = await execAsync(`"${ffmpegPath}" -encoders 2>&1`)
-      if (stdoutNvenc.includes('h264_nvenc')) {
-        logger.info('✅ Using NVIDIA NVENC (GPU encoding - fastest)')
-        return {
-          codec: 'h264_nvenc',
-          options: ['-preset', 'fast', '-rc', 'vbr', '-cq', '23'],
-        }
-      }
+      const { stdout } = await execAsync(`"${ffmpegPath}" -encoders 2>&1`, { timeout: 10000 })
+      availableEncoders = stdout
     } catch {
-      logger.debug('NVIDIA NVENC not available')
+      logger.debug('Could not detect available encoders')
     }
 
-    // Try Intel Quick Sync second
-    try {
-      const { stdout: stdoutQsv } = await execAsync(`"${ffmpegPath}" -encoders 2>&1`)
-      if (stdoutQsv.includes('h264_qsv')) {
-        logger.info('✅ Using Intel Quick Sync (GPU encoding - fast)')
-        return {
-          codec: 'h264_qsv',
-          options: ['-preset', 'fast', '-q:v', '23'],
-        }
+    // Try NVIDIA NVENC first (fastest if available)
+    if (availableEncoders.includes('h264_nvenc') && availableEncoders.includes('nvenc')) {
+      logger.info('✅ Using NVIDIA NVENC (GPU encoding - fastest)')
+      cachedEncoder = {
+        codec: 'h264_nvenc',
+        options: ['-preset', 'fast', '-rc', 'vbr', '-cq', '23'],
       }
-    } catch {
-      logger.debug('Intel Quick Sync not available')
+      return cachedEncoder
+    }
+
+    // Try Intel Quick Sync second (common on Intel CPUs)
+    if (availableEncoders.includes('h264_qsv') && availableEncoders.includes('qsv')) {
+      logger.info('✅ Using Intel Quick Sync (GPU encoding - fast)')
+      cachedEncoder = {
+        codec: 'h264_qsv',
+        options: ['-preset', 'fast', '-q:v', '23'],
+      }
+      return cachedEncoder
     }
 
     // Fallback to software encoding (slowest but always available)
-    logger.warn('⚠️ Using libx264 software encoding (slow) - consider installing GPU drivers for faster encoding')
-    return {
+    logger.warn('⚠️ Using libx264 software encoding (slower) - GPU encoders not detected. Install GPU drivers for faster encoding.')
+    cachedEncoder = {
       codec: 'libx264',
-      options: ['-preset', 'ultrafast', '-crf', '28'],  // Even faster preset for software
+      options: ['-preset', 'ultrafast', '-crf', '28'],  // Faster preset for software
     }
+    return cachedEncoder
   } else {
     // Linux
-    return {
+    cachedEncoder = {
       codec: 'libx264',
       options: ['-preset', 'ultrafast', '-crf', '28'],  // Optimize for speed
     }
+    return cachedEncoder
   }
 }
 
