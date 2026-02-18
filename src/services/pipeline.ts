@@ -144,15 +144,17 @@ export async function executePipeline(
     steps[2].progress = 10
     onProgress?.(steps[2])
 
-    const videoDuration = config.videoDuration || 60
-    logger.info(`Composing video with duration: ${videoDuration}s`)
+    // Use the actual TTS duration instead of config default (ensure video duration matches audio)
+    const videoDuration = audioResult.duration || config.videoDuration || 60
+    logger.info(`Composing video with duration: ${videoDuration}s (based on TTS voiceover duration)`)
 
     const videoResult = await composeBannerVideo(
       config.bannerImagePath,
       config.cookingVideoPath,
       audioResult.path,  // Use voiceover instead of background music
       config.outputVideoPath,
-      videoDuration
+      videoDuration,
+      true  // isVoiceover = true (don't apply volume reduction)
     )
 
     steps[2].status = 'completed'

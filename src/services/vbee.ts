@@ -47,7 +47,7 @@ function initializeClient(apiKey: string): AxiosInstance {
 
     client = axios.create({
       baseURL: VBEE_API_URL,
-      timeout: 30000,
+      timeout: 120000, // Increased to 120s for long TTS conversions
       httpsAgent,
       headers: {
         'Content-Type': 'application/json',
@@ -134,14 +134,16 @@ async function submitTtsRequest(
 async function pollTtsStatus(
   client: AxiosInstance,
   requestId: string,
-  maxAttempts: number = 60,
+  maxAttempts: number = 300, // Increased from 60 to 300 (5 minutes with 1s delays)
   delayMs: number = 1000
 ): Promise<string> {
   let attempts = 0
+  const startTime = Date.now()
 
   while (attempts < maxAttempts) {
     try {
-      logger.debug(`Polling TTS status: ${requestId} (attempt ${attempts + 1}/${maxAttempts})`)
+      const elapsedSeconds = Math.round((Date.now() - startTime) / 1000)
+      logger.debug(`Polling TTS status: ${requestId} (attempt ${attempts + 1}/${maxAttempts}, elapsed: ${elapsedSeconds}s)`)
 
       const response = await client.get(`/${requestId}`)
 
@@ -152,31 +154,34 @@ async function pollTtsStatus(
       const result = response.data.result
 
       if (result.status === 'SUCCESS') {
-        logger.info(`TTS conversion completed: ${requestId}`)
+        logger.info(`TTS conversion completed: ${requestId} (elapsed: ${elapsedSeconds}s)`)
         return result.audio_link
       }
 
       if (result.status === 'FAILURE') {
-        throw new Error(`TTS conversion failed for request ${requestId}`)
+        throw new Error(`TTS conversion failed for request ${requestId}: ${result.error_message || 'Unknown reason'}`)
       }
 
       // IN_PROGRESS - wait and retry
-      logger.debug(`TTS conversion in progress (${result.progress}%)`)
+      logger.debug(`TTS conversion in progress (${result.progress || 0}%)`)
       await new Promise((resolve) => setTimeout(resolve, delayMs))
       attempts++
     } catch (error) {
       if (attempts < maxAttempts - 1) {
-        logger.warn(`Error polling status, retrying...`, error)
+        const elapsedSeconds = Math.round((Date.now() - startTime) / 1000)
+        logger.warn(`Error polling status at ${elapsedSeconds}s, retrying...`, error)
         await new Promise((resolve) => setTimeout(resolve, delayMs))
         attempts++
       } else {
-        logger.error('Failed to get TTS status after max attempts', error)
+        const elapsedSeconds = Math.round((Date.now() - startTime) / 1000)
+        logger.error(`Failed to get TTS status after ${elapsedSeconds}s and ${maxAttempts} attempts`, error)
         throw error
       }
     }
   }
 
-  throw new Error(`TTS conversion timeout for request ${requestId}`)
+  const elapsedSeconds = Math.round((Date.now() - startTime) / 1000)
+  throw new Error(`TTS conversion timeout for request ${requestId} (exceeded ${elapsedSeconds}s)`)
 }
 
 // Download audio from URL
@@ -186,9 +191,10 @@ async function downloadAudio(audioUrl: string): Promise<Buffer> {
 
     const response = await axios.get(audioUrl, {
       responseType: 'arraybuffer',
-      timeout: 30000,
+      timeout: 120000, // Increased to 120s for large audio files
     })
 
+    logger.debug(`Audio downloaded successfully (${response.data.byteLength} bytes)`)
     return Buffer.from(response.data)
   } catch (error) {
     logger.error('Failed to download audio', error)

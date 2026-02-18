@@ -310,9 +310,10 @@ export async function convertVideoResolution(
 export async function composeBannerVideo(
   bannerImagePath: string,      // video_banner.png (background)
   cookingVideoPath: string,      // Douyin video (center overlay)
-  backgroundMusicPath: string,   // bg-music.m4a (audio)
+  backgroundMusicPath: string,   // bg-music.m4a OR voiceover.mp3 (audio)
   outputPath: string,
-  videoDuration: number = 60     // Duration in seconds (default 60s)
+  videoDuration: number = 60,    // Duration in seconds (default 60s)
+  isVoiceover: boolean = false   // If true, use as voiceover without volume reduction; if false, apply 50% volume as background music
 ): Promise<OutputVideo> {
   try {
     logger.info('Starting banner video composition with looped cooking video')
@@ -345,7 +346,15 @@ export async function composeBannerVideo(
       '[with_video]fps=30[video_out]',
     ].join(';')
 
-    // Build FFmpeg command
+    // Build FFmpeg command with different audio handling based on whether it's voiceover or background music
+    const audioFilterPart = isVoiceover
+      ? ''  // No volume reduction for voiceover - use it as-is
+      : ';[2:a:0]volume=0.5[music_out]'  // Reduce background music volume to 50%
+
+    const audioMapFlags = isVoiceover
+      ? ['-map', '2:a:0']  // Voiceover: use audio stream directly (no volume reduction)
+      : ['-map', '[music_out]']  // Background music: use volume-reduced audio
+
     const command = [
       `"${ffmpegPath}"`,
       // Inputs
@@ -353,14 +362,14 @@ export async function composeBannerVideo(
       '-i', `"${bannerImagePath}"`,                   // [0] Banner background
       '-stream_loop', '-1',                           // Loop the cooking video infinitely
       '-i', `"${cookingVideoPath}"`,                  // [1] Cooking video
-      '-i', `"${backgroundMusicPath}"`,               // [2] Background music
+      '-i', `"${backgroundMusicPath}"`,               // [2] Background music OR voiceover
 
-      // Filters - include audio filter for music volume (50% = 0.5)
-      '-filter_complex', `"${filterGraph};[2:a:0]volume=0.5[music_out]"`,
+      // Filters - conditionally apply volume filter for background music
+      '-filter_complex', `"${filterGraph}${audioFilterPart}"`,
 
       // Mapping
       '-map', '[video_out]',                          // Map video output
-      '-map', '[music_out]',                          // Map audio from music file (with volume reduction)
+      ...audioMapFlags,                               // Map audio (voiceover or background music)
 
       // Video codec
       '-c:v', encoder.codec,

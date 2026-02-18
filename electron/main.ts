@@ -1,3 +1,6 @@
+// MUST import this FIRST to load .env before other modules
+import './preload-env'
+
 import { app, BrowserWindow, Menu } from 'electron'
 import path from 'path'
 import { isDev } from './utils'

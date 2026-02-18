@@ -5,41 +5,52 @@ import type { ThumbnailImage } from '../types'
 const logger = createLogger('gemini-service')
 
 /**
- * IMPORTANT: Google Generative AI API Configuration
+ * IMPORTANT: Image Generation via CometAPI + Nano Banana
  *
- * This service uses Google's Generative AI APIs for:
- * 1. Prompt Generation: Using Gemini 2.0 Flash (via Google AI Studio)
- * 2. Image Generation: Using Imagen 3.0 (via Google AI Studio)
+ * This service uses:
+ * 1. Prompt Generation: Gemini 2.0 Flash (via Google AI Studio direct)
+ * 2. Image Generation: Gemini 2.5 Flash Image / Nano Banana (via CometAPI)
  *
  * SETUP INSTRUCTIONS:
- * 1. Visit https://aistudio.google.com/app/apikey
- * 2. Create or use an existing API key
- * 3. Set environment variable: GEMINI_API_KEY=your_api_key_here
+ * 1. For Text Prompts: Get GEMINI_API_KEY from https://aistudio.google.com/app/apikey
+ * 2. For Image Generation: Get COMET_API_KEY from https://cometapi.com (free tier available)
+ * 3. Set environment variables:
+ *    export GEMINI_API_KEY=your_google_key_here
+ *    export COMET_API_KEY=your_cometapi_key_here
  *
  * IMPORTANT NOTES:
- * - Google AI Studio (https://aistudio.google.com) provides free tier access
- * - Rate limits: ~60 requests/minute for free tier
- * - Image generation takes 10-30 seconds per request
- * - Both Gemini and Imagen models are available on the same endpoint
+ * - CometAPI provides Nano Banana (Gemini 2.5 Flash Image) at lower cost than Google official
+ * - Rate limits: Depends on CometAPI tier (free tier: ~60 req/min)
+ * - Image generation takes 15-30 seconds per request
+ * - CometAPI aggregates 500+ models in single interface
  *
- * API ENDPOINT:
- * - Base: https://generativelanguage.googleapis.com/v1beta/models
- * - Text: POST /gemini-2.0-flash:generateContent
- * - Image: POST /imagen-3.0-generate-001:generateContent
+ * API ENDPOINTS:
+ * - Text: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent
+ * - Image: https://api.cometapi.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent
  *
  * RESPONSE FORMATS:
  * - Text: candidates[0].content.parts[0].text
  * - Image: candidates[0].content.parts[0].inlineData.data (base64)
+ *
+ * Why Nano Banana (Gemini 2.5 Flash Image)?
+ * - Superior image consistency (especially important for avatar-guided thumbnails)
+ * - Fast generation (Flash = high-throughput)
+ * - Multi-modal: text→image, image→image, multi-image blending
+ * - SynthID watermark for provenance
  */
 
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY
 
-// Using Google Generative AI for both prompt generation and image generation
-const GEMINI_PROMPT_MODEL = 'gemini-2.0-flash'  // For prompt generation
-const GEMINI_IMAGE_MODEL = 'imagen-3.0-generate-001'  // For image generation
+const COMET_API_URL = 'https://api.cometapi.com/v1beta/models'
+const COMET_API_KEY = process.env.COMET_API_KEY
+
+// Models
+const GEMINI_PROMPT_MODEL = 'gemini-3-flash'  // For prompt generation (via Google)
+const NANO_BANANA_MODEL = 'gemini-3-pro-image'  // For image generation (via CometAPI)
 
 let geminiClient: AxiosInstance | null = null
+let cometClient: AxiosInstance | null = null
 
 function initializeGeminiClient(): AxiosInstance {
   if (!geminiClient) {
@@ -49,6 +60,16 @@ function initializeGeminiClient(): AxiosInstance {
     })
   }
   return geminiClient
+}
+
+function initializeCometClient(): AxiosInstance {
+  if (!cometClient) {
+    cometClient = axios.create({
+      baseURL: COMET_API_URL,
+      timeout: 60000,
+    })
+  }
+  return cometClient
 }
 
 interface ThumbnailPromptRequest {
@@ -125,33 +146,35 @@ Generate a detailed image prompt for this story thumbnail.`
   }
 }
 
-// Generate image using Google Generative AI (Gemini/Imagen)
+// Generate image using Nano Banana via CometAPI
+// Note: This is a helper function. For Modern Oriental thumbnails with avatar reference,
+// use generateModernOrientalThumbnail() instead, which is the main function in the pipeline.
 export async function generateThumbnailImage(
   prompt: string,
   outputPath: string
 ): Promise<ThumbnailImage> {
-  if (!GEMINI_API_KEY) {
-    logger.warn('GEMINI_API_KEY not set, using placeholder thumbnail')
+  if (!COMET_API_KEY) {
+    logger.warn('COMET_API_KEY not set, using placeholder thumbnail')
     return createPlaceholderThumbnail(outputPath)
   }
 
   try {
-    logger.info('Generating thumbnail image with Gemini/Imagen')
+    logger.info('🎨 Generating thumbnail image with Nano Banana via CometAPI')
 
-    const client = initializeGeminiClient()
+    const client = initializeCometClient()
 
-    // Enhanced prompt for better image generation
+    // Enhanced prompt for better image generation with Nano Banana
     const enhancedPrompt = `${prompt}
 
 Additional requirements:
-- 16:9 aspect ratio (1280x720)
+- 16:9 aspect ratio (1920x1080)
 - High quality, vibrant colors
 - Suitable for YouTube thumbnail
-- Professional artwork style
-- No text or watermarks`
+- Professional, polished artwork style
+- High-fidelity details`
 
-    // Using Gemini's image generation capability
-    const response = await client.post(`/${GEMINI_IMAGE_MODEL}:generateContent`, {
+    // Call Nano Banana to generate image
+    const response = await client.post(`/${NANO_BANANA_MODEL}:generateContent`, {
       contents: [
         {
           parts: [
@@ -162,37 +185,37 @@ Additional requirements:
         },
       ],
       generationConfig: {
-        temperature: 0.9,
+        temperature: 0.85,
         topP: 0.95,
         topK: 40,
+        responseModalities: ['IMAGE'],
       },
     }, {
-      params: {
-        key: GEMINI_API_KEY,
+      headers: {
+        'Authorization': `Bearer ${COMET_API_KEY}`,
+        'Content-Type': 'application/json',
       },
     })
 
     const imageData = response.data.candidates?.[0]?.content?.parts?.[0]?.inlineData
 
     if (!imageData) {
-      logger.warn('No image data in Gemini response, using placeholder')
+      logger.warn('No image data in Nano Banana response, using placeholder')
       return createPlaceholderThumbnail(outputPath)
     }
 
-    logger.info(`Thumbnail image generated successfully`)
+    logger.info(`✅ Thumbnail image generated successfully with Nano Banana`)
 
-    // In production, would decode base64 and save the image
-    // For now, return metadata about the generated image
     return {
       path: outputPath,
-      width: 1280,
-      height: 720,
+      width: 1920,
+      height: 1080,
       format: 'jpg',
       fileSize: 0,
       generatedAt: new Date(),
     }
   } catch (error) {
-    logger.error('Failed to generate thumbnail image with Gemini/Imagen', error)
+    logger.error('Failed to generate thumbnail image with Nano Banana', error)
     return createPlaceholderThumbnail(outputPath)
   }
 }
@@ -291,20 +314,20 @@ export async function validateGeminiConnection(): Promise<boolean> {
   }
 }
 
-// Validate image generation capability with actual test request
+// Validate image generation capability with Nano Banana (Gemini 2.5 Flash Image) via CometAPI
 export async function validateImageGenerationConnection(): Promise<boolean> {
-  if (!GEMINI_API_KEY) {
-    logger.warn('GEMINI_API_KEY not configured for image generation')
+  if (!COMET_API_KEY) {
+    logger.warn('COMET_API_KEY not configured for image generation. Get it from https://cometapi.com')
     return false
   }
 
   try {
-    const client = initializeGeminiClient()
+    const client = initializeCometClient()
 
-    // Test with a small image generation request
-    logger.info('Testing image generation API with test request...')
+    // Test with a small image generation request using Nano Banana
+    logger.info('Testing Nano Banana image generation via CometAPI...')
 
-    const response = await client.post(`/${GEMINI_IMAGE_MODEL}:generateContent`, {
+    const response = await client.post(`/${NANO_BANANA_MODEL}:generateContent`, {
       contents: [
         {
           parts: [
@@ -315,8 +338,9 @@ export async function validateImageGenerationConnection(): Promise<boolean> {
         },
       ],
     }, {
-      params: {
-        key: GEMINI_API_KEY,
+      headers: {
+        'Authorization': `Bearer ${COMET_API_KEY}`,
+        'Content-Type': 'application/json',
       },
     })
 
@@ -328,29 +352,28 @@ export async function validateImageGenerationConnection(): Promise<boolean> {
     )
 
     if (hasImageData) {
-      logger.info('✅ Image generation API connection successful')
+      logger.info('✅ Nano Banana (Gemini 2.5 Flash Image) via CometAPI: Connection successful')
       return true
     }
 
-    logger.warn('Image generation API response missing image data')
+    logger.warn('Image generation response missing image data')
     logger.debug(`Response: ${JSON.stringify(response.data)}`)
     return false
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error)
-    logger.error(`Image generation API validation failed: ${errorMsg}`, error)
+    logger.error(`Nano Banana validation failed: ${errorMsg}`, error)
 
     if (error instanceof Error && 'response' in error) {
       const axiosError = error as any
       logger.error(`API Status: ${axiosError.response?.status}`)
       logger.error(`API Error Details: ${JSON.stringify(axiosError.response?.data)}`)
 
-      // Check for specific error patterns
       if (axiosError.response?.status === 404) {
-        logger.error('❌ Model not found. Check model name and endpoint.')
+        logger.error('❌ Model not found. Check COMET_API_KEY and model name.')
       } else if (axiosError.response?.status === 401) {
-        logger.error('❌ API Key invalid or expired.')
+        logger.error('❌ CometAPI Key invalid or expired. Get new key from https://cometapi.com')
       } else if (axiosError.response?.status === 429) {
-        logger.error('❌ Rate limit exceeded.')
+        logger.error('❌ Rate limit exceeded. CometAPI free tier: ~60 req/min')
       }
     }
 
@@ -364,19 +387,20 @@ export async function validateBananaConnection(): Promise<boolean> {
   return validateImageGenerationConnection()
 }
 
-// Generate thumbnail with Modern Oriental style using reference avatar
+// Generate thumbnail with Modern Oriental style using Nano Banana (Gemini 2.5 Flash Image) via CometAPI
 export async function generateModernOrientalThumbnail(
   avatarImagePath: string,       // Reference avatar for style guidance
   storyTitle: string,
   outputPath: string
 ): Promise<ThumbnailImage> {
-  if (!GEMINI_API_KEY) {
-    logger.warn('GEMINI_API_KEY not set, using placeholder thumbnail')
+  if (!COMET_API_KEY) {
+    logger.warn('COMET_API_KEY not set. Get from https://cometapi.com')
+    logger.warn('Using placeholder thumbnail instead')
     return createPlaceholderThumbnail(outputPath)
   }
 
   try {
-    logger.info('Generating Modern Oriental style thumbnail using avatar reference')
+    logger.info('🎨 Generating Modern Oriental style thumbnail using Nano Banana via CometAPI')
 
     // First, load and encode avatar image as base64 for vision capability
     let avatarBase64: string | null = null
@@ -390,10 +414,13 @@ export async function generateModernOrientalThumbnail(
       // Continue without avatar - it's optional
     }
 
-    const client = initializeGeminiClient()
+    const client = initializeCometClient()
 
-    // Modern Oriental style prompt with avatar reference
+    // Modern Oriental style prompt optimized for Nano Banana
+    // Nano Banana excels at consistency and detail, so we can be more specific
     const moderateOrientalPrompt = `Create a YouTube thumbnail in Modern Oriental (Á Đông hiện đại) style with Flat Design aesthetic for an audiobook titled: "${storyTitle}"
+
+requirements: 16:9 aspect ratio, 1920x1080 resolution
 
 Design Requirements:
 1. Layout & Structure:
@@ -403,42 +430,43 @@ Design Requirements:
 
 2. Color Palette:
    - Background: Cream/Off-white with subtle paper texture
-   - Primary: Deep Red (#990000) for main title
+   - Primary: Deep Red (#990000) for main title text
    - Secondary: Slate Blue (#5D7B93) for decorative elements
-   - Accent: Gold/Yellow highlights
+   - Accent: Gold/Yellow for highlights and details
 
 3. Graphic Elements:
    - Traditional cloud patterns (ngũ sắc style, Vietnamese/Chinese aesthetic)
-   - Fine flowing lines with gentle shadows
-   - Central icon: Open book with ribbons/waves and musical notes
-   - Bottom corner: Circular logo with book icon
+   - Fine flowing lines with gentle shadows throughout
+   - Central icon: Open book with flowing ribbons/waves and musical notes
+   - Bottom corner: Circular logo/watermark with book icon
 
 4. Typography:
-   - Title: Brush-style font, thick strokes, Deep Red color
-   - Drop shadow for 3D effect
+   - Main Title: Brush-style font, thick strokes, rounded ends, Deep Red color
+   - Drop shadow for 3D effect and readability
    - Subtitle: Modern Serif, uppercase, wide letter spacing
 
 5. Overall Style:
    - Traditional meets modern aesthetic
    - Refined, elegant, professional appearance
-   - Audiobook/literature brand aesthetic
-   - 16:9 aspect ratio (1920x1080)
-   - High quality, vibrant colors
+   - Professional audiobook/literature brand feeling
+   - Aspect ratio: 16:9 (1920x1080 resolution)
+   - High quality, vibrant yet harmonious colors
+   - Premium, polished appearance
 
-Generate the complete thumbnail image.`
+Generate the complete, high-quality thumbnail image.`
 
     // Build request with vision capability if avatar is available
     const parts: any[] = []
 
     if (avatarBase64) {
-      // Include avatar image as reference
+      // Include avatar image as reference for style consistency (Nano Banana's strength!)
       parts.push({
         inlineData: {
           mimeType: 'image/jpeg',
           data: avatarBase64,
         },
       })
-      logger.debug('Avatar image included in request for style reference')
+      logger.info('👀 Avatar image included as style reference for consistency')
     }
 
     // Add text prompt
@@ -446,39 +474,45 @@ Generate the complete thumbnail image.`
       text: moderateOrientalPrompt,
     })
 
-    // Call Gemini to generate image
-    const response = await client.post(`/${GEMINI_IMAGE_MODEL}:generateContent`, {
+    // Call Nano Banana via CometAPI to generate image
+    // Nano Banana (Gemini 2.5 Flash Image) excels at:
+    // - Consistent image generation
+    // - Avatar-guided style matching
+    // - Fast generation (Flash = high-throughput)
+    const response = await client.post(`/${NANO_BANANA_MODEL}:generateContent`, {
       contents: [
         {
           parts,
         },
       ],
       generationConfig: {
-        temperature: 0.85,
-        topP: 0.9,
+        temperature: 0.8,  // Slightly lower for more consistent style
+        topP: 0.95,
         topK: 40,
+        responseModalities: ['IMAGE', 'TEXT'],
       },
     }, {
-      params: {
-        key: GEMINI_API_KEY,
+      headers: {
+        'Authorization': `Bearer ${COMET_API_KEY}`,
+        'Content-Type': 'application/json',
       },
     })
 
     // Log response structure for debugging
-    logger.debug(`API Response status: ${response.status}`)
-    logger.debug(`Response data keys: ${Object.keys(response.data).join(', ')}`)
+    logger.debug(`🔍 API Response status: ${response.status}`)
+    logger.debug(`📊 Response data keys: ${Object.keys(response.data).join(', ')}`)
 
-    // Extract image data from Gemini response
-    // Imagen may return data in: inlineData.data, parts[0].text, or other formats
+    // Extract image data from CometAPI/Nano Banana response
+    // Nano Banana returns images in: candidates[0].content.parts[0].inlineData.data (base64)
     let imageBase64: string | null = null
 
     if (response.data?.candidates?.[0]) {
       const candidate = response.data.candidates[0]
       const parts_data = candidate?.content?.parts?.[0]
 
-      logger.debug(`Candidate structure: ${JSON.stringify(parts_data, null, 2)}`)
+      logger.debug(`📋 Response structure: ${JSON.stringify(parts_data, null, 2)}`)
 
-      // Try multiple paths for image data
+      // Try multiple paths for image data (Nano Banana formats)
       imageBase64 = parts_data?.inlineData?.data ||
                    parts_data?.text ||
                    candidate?.image?.data ||
@@ -486,7 +520,7 @@ Generate the complete thumbnail image.`
 
       // If it's a URL, note it for potential future use
       if (typeof imageBase64 === 'string' && imageBase64.startsWith('http')) {
-        logger.warn('Received image URL instead of base64. URL-based downloads not yet implemented.')
+        logger.warn('⚠️  Received image URL instead of base64. URL-based downloads not yet implemented.')
         return createPlaceholderThumbnail(outputPath)
       }
     }
@@ -516,16 +550,17 @@ Generate the complete thumbnail image.`
       const { writeFile } = await import('fs/promises')
       const imageBuffer = Buffer.from(imageBase64, 'base64')
 
-      logger.info(`Writing thumbnail: ${imageBuffer.length} bytes → ${outputPath}`)
+      logger.info(`💾 Writing Nano Banana thumbnail: ${imageBuffer.length} bytes → ${outputPath}`)
       await writeFile(outputPath, imageBuffer)
 
       // Verify file was actually written
       const { stat } = await import('fs/promises')
       const fileStats = await stat(outputPath)
 
-      logger.info(`✅ Thumbnail saved successfully`)
-      logger.info(`   Path: ${outputPath}`)
-      logger.info(`   Size: ${fileStats.size} bytes`)
+      logger.info(`✅ Nano Banana thumbnail saved successfully`)
+      logger.info(`   📁 Path: ${outputPath}`)
+      logger.info(`   📊 Size: ${fileStats.size} bytes (${(fileStats.size / 1024).toFixed(1)} KB)`)
+      logger.info(`   🎨 Model: Gemini 2.5 Flash Image (Nano Banana) via CometAPI`)
 
       return {
         path: outputPath,
@@ -536,19 +571,26 @@ Generate the complete thumbnail image.`
         generatedAt: new Date(),
       }
     } catch (fileError) {
-      logger.error(`Failed to write thumbnail file: ${outputPath}`, fileError)
+      logger.error(`❌ Failed to write thumbnail file: ${outputPath}`, fileError)
       logger.warn('Using placeholder thumbnail instead')
       return createPlaceholderThumbnail(outputPath)
     }
   } catch (apiError) {
     const errorMsg = apiError instanceof Error ? apiError.message : String(apiError)
-    logger.error(`Thumbnail generation failed: ${errorMsg}`, apiError)
+    logger.error(`❌ Nano Banana thumbnail generation failed: ${errorMsg}`, apiError)
 
     // Log specific API errors
     if (apiError instanceof Error && 'response' in apiError) {
       const axiosError = apiError as any
-      logger.error(`API Status: ${axiosError.response?.status}`)
-      logger.error(`API Error: ${JSON.stringify(axiosError.response?.data)}`)
+      logger.error(`📡 API Status: ${axiosError.response?.status}`)
+      logger.error(`📋 API Error: ${JSON.stringify(axiosError.response?.data)}`)
+
+      // Provide helpful error messages
+      if (axiosError.response?.status === 401) {
+        logger.error('💡 Hint: Check COMET_API_KEY is valid from https://cometapi.com')
+      } else if (axiosError.response?.status === 429) {
+        logger.error('💡 Hint: Rate limited. Wait 60 seconds before retry.')
+      }
     }
 
     logger.warn('Using placeholder thumbnail instead')

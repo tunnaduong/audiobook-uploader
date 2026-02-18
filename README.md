@@ -48,12 +48,18 @@ cp .env.example .env
 
 4. Add your API keys to `.env`:
 ```
-VBEE_API_KEY=your_key_here
-YOUTUBE_API_KEY=your_key_here
-GEMINI_API_KEY=your_key_here
+COMET_API_KEY=your_cometapi_key_here      # For Nano Banana image generation
+GEMINI_API_KEY=your_gemini_key_here       # For text prompt generation
+VBEE_API_KEY=your_vbee_key_here
+VBEE_APP_ID=your_vbee_app_id_here
+YOUTUBE_API_KEY=your_youtube_key_here     # Optional
 ```
 
-**Note:** See [GEMINI_API_SETUP.md](./GEMINI_API_SETUP.md) for detailed instructions on getting a free Google Generative AI (Gemini + Imagen) API key.
+**API Key Setup:**
+- **Nano Banana (Image Generation):** See [NANO_BANANA_SETUP.md](./NANO_BANANA_SETUP.md) - CometAPI setup (5 min, 2-5x cheaper than Google official!)
+- **Gemini (Text Prompts):** Get from https://aistudio.google.com/app/apikey
+- **Vbee (Voiceover):** Get from https://vbee.vn
+- **YouTube (Optional):** Get from Google Cloud Console
 
 ## Development
 
@@ -108,8 +114,13 @@ audiobook-uploader/
 1. **Validate Input**: Check all input files exist
 2. **Generate Audiobook Voiceover**: Transform story text into MP3 audio using Vbee API
 3. **Compose Video**: Combine banner + looped cooking video + voiceover (FFmpeg)
-4. **Generate Thumbnail**: Create Modern Oriental style thumbnail using Gemini + Imagen
+4. **Generate Thumbnail**: Create Modern Oriental style thumbnail using Nano Banana (Gemini 2.5 Flash Image) with avatar style reference
 5. **Upload to YouTube** (Optional): Publish video with metadata
+
+**Technology Stack:**
+- Video: FFmpeg (hardware-accelerated)
+- Audio: Vbee TTS (Vietnamese optimized)
+- Thumbnail: Nano Banana via CometAPI (fast, high-quality, affordable)
 
 ## Configuration
 
