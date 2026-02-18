@@ -219,9 +219,9 @@ function HomeTab({
         backgroundMusicPath: 'C:\\dev\\audiobook-uploader\\input\\music\\bg-music.m4a',
         avatarImagePath: 'C:\\dev\\audiobook-uploader\\input\\image\\avatar.png',
 
-        // Output paths
-        outputVideoPath: 'C:\\dev\\audiobook-uploader\\output\\final_video.mp4',
-        outputThumbnailPath: 'C:\\dev\\audiobook-uploader\\output\\thumbnail.jpg',
+        // Output paths (use timestamp to avoid conflicts with downloaded Douyin video)
+        outputVideoPath: `C:\\dev\\audiobook-uploader\\output\\audiobook_${Date.now()}.mp4`,
+        outputThumbnailPath: `C:\\dev\\audiobook-uploader\\output\\thumbnail_${Date.now()}.jpg`,
 
         // Settings
         videoDuration: 60,
