@@ -1,8 +1,9 @@
 import { exec } from 'child_process'
 import path from 'path'
+import fs from 'fs'
 import { promisify } from 'util'
 import { createLogger } from '../utils/logger'
-import { getYtdlpPath } from '../utils/ytdlp-setup'
+import { getDouyinDownloaderPath, createDouyinConfig, checkPythonInstallation } from '../utils/douyin-downloader-setup'
 import type { Video } from '../types'
 
 const execAsync = promisify(exec)
@@ -21,8 +22,8 @@ export async function searchDouyinVideos(
   try {
     logger.info(`Searching Douyin for keyword: ${keyword}`)
 
-    // TODO: Implement actual Douyin search using yt-dlp
-    // This would require using yt-dlp's search feature with Douyin URL patterns
+    // TODO: Implement actual Douyin search using douyin-downloader
+    // This would require using downloader.py with search feature
 
     // Placeholder response
     return []
@@ -36,73 +37,68 @@ export async function downloadDouyinVideo(
   videoUrl: string,
   options: DownloadOptions
 ): Promise<Video> {
+  let configFilePath: string | null = null
+
   try {
     logger.info(`🎬 Downloading Douyin video: ${videoUrl}`)
 
-    const ytdlpPath = await getYtdlpPath()
-
-    // Create the output filename (without extension - let yt-dlp decide)
-    const outputTemplate = path.join(options.outputPath, '%(title)s')
-
-    // Build yt-dlp command with best quality MP4 format
-    // Douyin requires cookies - try multiple methods to get them
-    const cookiesFile = process.env.DOUYIN_COOKIES_FILE
-
-    let command = [
-      `"${ytdlpPath}"`,
-    ]
-
-    // Add cookies if available
-    if (cookiesFile) {
-      logger.info(`📝 Using cookies from: ${cookiesFile}`)
-      command.push(`--cookies "${cookiesFile}"`)
-    } else {
-      logger.info(`🔄 Attempting to extract cookies from Chrome browser...`)
-      command.push(`--cookies-from-browser chrome`)
+    // Check Python installation
+    if (!checkPythonInstallation()) {
+      throw new Error('Python 3.9+ is required. Please install Python from https://www.python.org/')
     }
 
-    command.push(
-      `-o "${outputTemplate}.%(ext)s"`,
-      '-f "best[ext=mp4]/best"',  // Prefer MP4, fallback to best available
-      '--no-warnings',
-      '--socket-timeout', '30'
-    )
+    // Get douyin-downloader path
+    const downloaderPath = await getDouyinDownloaderPath()
 
-    command.push(`"${videoUrl}"`)
+    // Get cookies file if configured
+    const cookiesFile = process.env.DOUYIN_COOKIES_FILE
+    if (cookiesFile && !fs.existsSync(cookiesFile)) {
+      logger.warn(`⚠️  Cookies file not found: ${cookiesFile}`)
+    }
 
-    const commandStr = command.join(' ')
+    // Create temp config file
+    configFilePath = createDouyinConfig(videoUrl, options.outputPath, cookiesFile)
 
-    logger.info(`🔧 Executing yt-dlp...`)
-    logger.debug(`Command: ${commandStr}`)
+    // Build Python command to run DouYinCommand.py
+    const scriptPath = path.join(downloaderPath, 'DouYinCommand.py')
+    const command = `python "${scriptPath}" --config "${configFilePath}"`
+
+    logger.info(`🔧 Executing douyin-downloader (V1.0 - Stable)...`)
+    logger.debug(`Command: ${command}`)
 
     // Execute download
     const startTime = Date.now()
-    const { stdout, stderr } = await execAsync(commandStr, {
+    const { stdout, stderr } = await execAsync(command, {
       maxBuffer: 50 * 1024 * 1024, // 50MB buffer
       timeout: 600000, // 10 minutes timeout
+      cwd: downloaderPath, // Run from downloader directory
     })
 
     const elapsedSeconds = Math.round((Date.now() - startTime) / 1000)
 
     if (stderr) {
-      logger.debug(`yt-dlp output: ${stderr}`)
+      logger.debug(`Downloader output: ${stderr}`)
     }
 
     if (stdout) {
-      logger.debug(`yt-dlp stdout: ${stdout}`)
+      logger.debug(`Downloader stdout: ${stdout}`)
     }
 
-    // Extract video info
-    const videoInfo = await getVideoInfo(videoUrl)
+    // Find the downloaded video file
+    const downloadedFile = findDownloadedVideo(options.outputPath)
 
-    logger.info(`✅ Successfully downloaded video in ${elapsedSeconds}s: ${videoInfo.title}`)
+    if (!downloadedFile) {
+      throw new Error('Video file not found after download. Check logs for details.')
+    }
+
+    logger.info(`✅ Successfully downloaded video in ${elapsedSeconds}s`)
 
     return {
-      id: videoInfo.id,
-      title: videoInfo.title,
+      id: extractVideoId(videoUrl) || 'unknown',
+      title: path.basename(downloadedFile, path.extname(downloadedFile)),
       url: videoUrl,
-      duration: videoInfo.duration,
-      localPath: path.join(options.outputPath, `${videoInfo.title}.mp4`),
+      duration: 0, // Could be enhanced with video duration detection
+      localPath: downloadedFile,
       downloadedAt: new Date(),
     }
   } catch (error) {
@@ -112,43 +108,58 @@ export async function downloadDouyinVideo(
     // Provide helpful error message
     let helpMessage = `Douyin download failed: ${errorMsg}`
 
-    if (errorMsg.includes('Fresh cookies')) {
-      helpMessage += `\n\n⚠️ Douyin requires cookies to download videos.\n\nSolutions:\n1. Open Douyin in Chrome browser first (to set cookies)\n2. Or provide cookies file: add DOUYIN_COOKIES_FILE=path/to/cookies.txt to .env\n3. Cookies can be extracted using: yt-dlp --cookies-from-browser chrome --cookies cookies.txt`
-    } else if (errorMsg.includes('yt-dlp')) {
-      helpMessage += `\n\nMake sure yt-dlp is properly installed and YTDLP_PATH is set in .env if needed`
+    if (errorMsg.includes('Python')) {
+      helpMessage += `\n\n⚠️  Python is required to use douyin-downloader.\n\nPlease install Python 3.9+ from: https://www.python.org/\n\nAfter installation, restart the app.`
+    } else if (errorMsg.includes('douyin-downloader')) {
+      helpMessage += `\n\n⚠️  douyin-downloader not installed.\n\nPlease install dependencies:\n1. cd "C:\\dev\\audiobook-uploader\\bin\\douyin-downloader"\n2. pip install -r requirements.txt`
+    } else if (errorMsg.includes('Cookie') || errorMsg.includes('cookies')) {
+      helpMessage += `\n\n⚠️  Douyin requires valid cookies to download videos.\n\nTo get fresh cookies:\n1. Open Chrome and visit: https://www.douyin.com/\n2. Watch 2-3 videos to ensure cookies are set\n3. Restart the app\n4. Try downloading again`
     }
 
     throw new Error(helpMessage)
+  } finally {
+    // Clean up temp config file
+    if (configFilePath && fs.existsSync(configFilePath)) {
+      try {
+        fs.unlinkSync(configFilePath)
+        logger.debug(`Cleaned up temp config: ${configFilePath}`)
+      } catch {
+        logger.warn(`Failed to clean up temp config: ${configFilePath}`)
+      }
+    }
   }
 }
 
-async function getVideoInfo(videoUrl: string): Promise<any> {
+/**
+ * Find the downloaded video file in output directory
+ */
+function findDownloadedVideo(outputPath: string): string | null {
   try {
-    const ytdlpPath = await getYtdlpPath()
-    const cookiesFile = process.env.DOUYIN_COOKIES_FILE
-
-    let command = `"${ytdlpPath}"`
-
-    // Add cookies if available
-    if (cookiesFile) {
-      command += ` --cookies "${cookiesFile}"`
-    } else {
-      command += ` --cookies-from-browser chrome`
+    if (!fs.existsSync(outputPath)) {
+      return null
     }
 
-    command += ` --dump-json "${videoUrl}"`
+    const files = fs.readdirSync(outputPath)
 
-    logger.debug(`Getting video info...`)
-    const { stdout } = await execAsync(command, { timeout: 60000 })
+    // Look for MP4 files (most recent first)
+    const videoFiles = files
+      .filter(f => f.toLowerCase().endsWith('.mp4'))
+      .map(f => path.join(outputPath, f))
+      .sort((a, b) => {
+        const statA = fs.statSync(a)
+        const statB = fs.statSync(b)
+        return statB.mtimeMs - statA.mtimeMs // Most recent first
+      })
 
-    const info = JSON.parse(stdout)
-    logger.info(`📊 Video info: ${info.title} (${info.duration}s)`)
+    if (videoFiles.length > 0) {
+      logger.info(`📁 Found video: ${videoFiles[0]}`)
+      return videoFiles[0]
+    }
 
-    return info
+    return null
   } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error)
-    logger.error(`Failed to get video info: ${errorMsg}`, error)
-    throw new Error(`Could not extract video info: ${errorMsg}`)
+    logger.warn(`Failed to find downloaded video: ${error}`)
+    return null
   }
 }
 
