@@ -19,6 +19,33 @@ function extractDouyinUrlFromText(text: string): string | null {
   return null
 }
 
+// Helper function to get next video number and output folder
+async function getNextVideoFolder(): Promise<{ folderPath: string; videoNum: number }> {
+  const baseOutputPath = 'C:\\dev\\audiobook-uploader\\output'
+
+  // Find highest existing vid_X folder
+  let maxNum = 0
+  try {
+    const fs = await import('fs')
+    if (fs.existsSync(baseOutputPath)) {
+      const files = fs.readdirSync(baseOutputPath)
+      for (const file of files) {
+        const match = file.match(/^vid_(\d+)$/)
+        if (match) {
+          const num = parseInt(match[1], 10)
+          if (num > maxNum) maxNum = num
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('Could not read output directory:', error)
+  }
+
+  const nextNum = maxNum + 1
+  const folderPath = `${baseOutputPath}\\vid_${nextNum}`
+  return { folderPath, videoNum: nextNum }
+}
+
 interface EnvConfig {
   VBEE_API_KEY?: string
   VBEE_APP_ID?: string
@@ -200,6 +227,10 @@ function HomeTab({
       // Extract project name from first line of story
       const projectName = state.storyText.split('\n')[0].trim() || 'Untitled'
 
+      // Get next video folder (vid_1, vid_2, etc.)
+      const { folderPath } = await getNextVideoFolder()
+      console.log(`📁 Output folder: ${folderPath}`)
+
       // Listen for progress updates from Electron main process
       const unsubscribe = window.api?.onPipelineProgress?.((step) => {
         setProgress(step.progress)
@@ -219,9 +250,9 @@ function HomeTab({
         backgroundMusicPath: 'C:\\dev\\audiobook-uploader\\input\\music\\bg-music.m4a',
         avatarImagePath: 'C:\\dev\\audiobook-uploader\\input\\image\\avatar.png',
 
-        // Output paths (use timestamp to avoid conflicts with downloaded Douyin video)
-        outputVideoPath: `C:\\dev\\audiobook-uploader\\output\\audiobook_${Date.now()}.mp4`,
-        outputThumbnailPath: `C:\\dev\\audiobook-uploader\\output\\thumbnail_${Date.now()}.jpg`,
+        // Output paths (organized by video number: vid_1, vid_2, etc.)
+        outputVideoPath: `${folderPath}\\final_video.mp4`,
+        outputThumbnailPath: `${folderPath}\\thumbnail.jpg`,
 
         // Settings
         videoDuration: 60,

@@ -126,6 +126,14 @@ export async function executePipeline(
 
     validateConfig(config)
 
+    // Create output directory if it doesn't exist
+    const outputDir = path.dirname(config.outputVideoPath)
+    if (!fs.existsSync(outputDir)) {
+      logger.info(`📁 Creating output directory: ${outputDir}`)
+      fs.mkdirSync(outputDir, { recursive: true })
+      logger.info(`✅ Output directory created: ${outputDir}`)
+    }
+
     steps[0].status = 'completed'
     steps[0].progress = 100
     steps[0].message = 'Input validation successful'
