@@ -2,12 +2,25 @@ import { ipcMain, dialog, BrowserWindow } from 'electron'
 import path from 'path'
 import { getAppDataPath, initializeDatabase, getProjectHistory, deleteProject as dbDeleteProject } from '../src/utils/database'
 import { executePipeline } from '../src/services/pipeline'
+import { onLog } from '../src/utils/logger'
 import type { PipelineConfig, AppSettings, PipelineResult } from '../src/types'
 
 let mainWindow: BrowserWindow | null = null
 
 export function setupIpcHandlers(window: BrowserWindow) {
   mainWindow = window
+
+  // Setup log listener to broadcast all logs to UI
+  onLog((entry) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('app-log', {
+        timestamp: entry.timestamp,
+        level: entry.level,
+        module: entry.module,
+        message: entry.message,
+      })
+    }
+  })
 
   // File operations
   ipcMain.handle('select-folder', async () => {
@@ -134,6 +147,38 @@ export function setupIpcHandlers(window: BrowserWindow) {
       platform: process.platform as 'win32' | 'darwin' | 'linux',
       arch: process.arch,
       nodeVersion: process.versions.node,
+    }
+  })
+
+  // Environment configuration
+  ipcMain.handle('get-env-config', async () => {
+    console.log('📋 IPC: Loading environment configuration')
+    return {
+      VBEE_API_KEY: process.env.VBEE_API_KEY,
+      VBEE_APP_ID: process.env.VBEE_APP_ID,
+      GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+      COMET_API_KEY: process.env.COMET_API_KEY,
+    }
+  })
+
+  // Project history
+  ipcMain.handle('get-project-history', async () => {
+    console.log('📋 IPC: Loading project history')
+    try {
+      await initializeDatabase()
+      const projects = await getProjectHistory()
+      // Transform database projects to ProjectHistory format for UI
+      return projects.map((p) => ({
+        id: p.id,
+        name: p.title,
+        date: p.createdAt ? new Date(p.createdAt).toLocaleString('vi-VN') : 'N/A',
+        duration: p.progress ? `${p.progress * 0.6}:00` : 'N/A', // Rough estimate
+        status: p.status === 'completed' ? 'completed' : 'failed',
+        outputPath: path.join(getAppDataPath(), 'output', `vid_${p.id}`),
+      }))
+    } catch (error) {
+      console.error('❌ Failed to load project history:', error)
+      return []
     }
   })
 }

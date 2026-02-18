@@ -23,6 +23,10 @@ const api: ElectronAPI = {
   // System info
   getSystemInfo: () => ipcRenderer.invoke('get-system-info'),
 
+  // Environment & Configuration
+  getEnvConfig: () => ipcRenderer.invoke('get-env-config'),
+  getProjectHistory: () => ipcRenderer.invoke('get-project-history'),
+
   // Event listeners
   onPipelineProgress: (callback: (progress: PipelineProgress) => void) => {
     const listener = (_event: IpcRendererEvent, progress: PipelineProgress) => callback(progress)
@@ -37,7 +41,22 @@ const api: ElectronAPI = {
     // Return unsubscribe function
     return () => ipcRenderer.removeListener('pipeline-error', listener)
   },
+
+  onAppLog: (callback: (log: { timestamp: string; level: string; module: string; message: string }) => void) => {
+    const listener = (_event: IpcRendererEvent, log: { timestamp: string; level: string; module: string; message: string }) => callback(log)
+    ipcRenderer.on('app-log', listener)
+    // Return unsubscribe function
+    return () => ipcRenderer.removeListener('app-log', listener)
+  },
 }
 
 // Expose the API to the renderer process
 contextBridge.exposeInMainWorld('api', api)
+
+// Expose shell.openPath for opening folders
+contextBridge.exposeInMainWorld('shell', {
+  openPath: (path: string) => {
+    const { shell } = require('electron')
+    return shell.openPath(path)
+  },
+})

@@ -1,18 +1,103 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import './Dashboard.css'
+
+// Helper function to extract Douyin URL from pasted text
+function extractDouyinUrlFromText(text: string): string | null {
+  if (!text || !text.trim()) return null
+
+  // Try to find URL in the text
+  const urlMatch = text.match(/https?:\/\/[^\s]+/g)
+  if (!urlMatch) return null
+
+  // Find the first valid Douyin URL
+  for (const url of urlMatch) {
+    if (/douyin\.com|dy\.zzz\.com\.cn|vt\.tiktok\.com|v\.douyin\.com/.test(url)) {
+      return url
+    }
+  }
+
+  return null
+}
+
+interface EnvConfig {
+  VBEE_API_KEY?: string
+  VBEE_APP_ID?: string
+  GEMINI_API_KEY?: string
+  COMET_API_KEY?: string
+}
+
+interface Project {
+  id: number
+  name: string
+  date: string
+  duration: string
+  status: 'completed' | 'failed'
+  outputPath: string
+}
+
+interface HomeTabState {
+  storyText: string
+  douyinUrl: string
+  selectedVoice: string
+}
+
+interface SettingsTabState {
+  apiKey: string
+  appId: string
+  youtubeKey: string
+  outputDir: string
+}
 
 export function Dashboard() {
   const [activeTab, setActiveTab] = useState<'home' | 'settings' | 'history'>('home')
 
+  // Preserve tab state
+  const [homeTabState, setHomeTabState] = useState<HomeTabState>({
+    storyText: '',
+    douyinUrl: '',
+    selectedVoice: 'n_hanoi_female_nguyetnga2_book_vc',
+  })
+
+  const [settingsTabState, setSettingsTabState] = useState<SettingsTabState>({
+    apiKey: '',
+    appId: '',
+    youtubeKey: '',
+    outputDir: './output',
+  })
+
+  const [envConfig, setEnvConfig] = useState<EnvConfig>({})
+  const [history, setHistory] = useState<Project[]>([])
+
+  // Load environment variables when component mounts
+  useEffect(() => {
+    loadEnvConfig()
+    loadHistory()
+  }, [])
+
+  const loadEnvConfig = async () => {
+    try {
+      const config = await window.api?.getEnvConfig?.()
+      if (config) {
+        setEnvConfig(config)
+      }
+    } catch (error) {
+      console.error('Failed to load environment config:', error)
+    }
+  }
+
+  const loadHistory = async () => {
+    try {
+      const projects = await window.api?.getProjectHistory?.()
+      if (projects) {
+        setHistory(projects)
+      }
+    } catch (error) {
+      console.error('Failed to load project history:', error)
+    }
+  }
+
   return (
     <div className="dashboard">
-      {/* Menu Bar */}
-      <div className="menu-bar">
-        <div className="menu-item">File</div>
-        <div className="menu-item">Edit</div>
-        <div className="menu-item">Help</div>
-      </div>
-
       {/* Tab Navigation */}
       <div className="tab-navigation">
         <button
@@ -37,9 +122,17 @@ export function Dashboard() {
 
       {/* Content Area */}
       <div className="content-area">
-        {activeTab === 'home' && <HomeTab />}
-        {activeTab === 'settings' && <SettingsTab />}
-        {activeTab === 'history' && <HistoryTab />}
+        {activeTab === 'home' && (
+          <HomeTab state={homeTabState} setState={setHomeTabState} onSuccess={loadHistory} />
+        )}
+        {activeTab === 'settings' && (
+          <SettingsTab
+            state={settingsTabState}
+            setState={setSettingsTabState}
+            envConfig={envConfig}
+          />
+        )}
+        {activeTab === 'history' && <HistoryTab projects={history} />}
       </div>
 
       {/* Status Bar */}
@@ -51,20 +144,48 @@ export function Dashboard() {
   )
 }
 
-function HomeTab() {
-  const [storyText, setStoryText] = useState('')
-  const [douyinUrl, setDouyinUrl] = useState('')
-  const [selectedVoice, setSelectedVoice] = useState('n_hanoi_female_nguyetnga2_book_vc')
+function HomeTab({
+  state,
+  setState,
+  onSuccess,
+}: {
+  state: HomeTabState
+  setState: (state: HomeTabState) => void
+  onSuccess: () => void
+}) {
   const [isProcessing, setIsProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
   const [logs, setLogs] = useState<string[]>([])
+  const logsContainerRef = useRef<HTMLDivElement>(null)
+
+  // Auto-scroll logs to bottom when new logs are added
+  useEffect(() => {
+    if (logsContainerRef.current) {
+      logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight
+    }
+  }, [logs])
+
+  // Setup global log listener when component mounts
+  useEffect(() => {
+    const unsubscribe = window.api?.onAppLog?.((log) => {
+      const levelEmoji = {
+        error: '🔴',
+        warn: '🟡',
+        info: '🔵',
+        debug: '⚪',
+      }[log.level] || '⚪'
+      const formattedLog = `${levelEmoji} [${log.timestamp.split('T')[1].split('.')[0]}] [${log.module}] ${log.message}`
+      setLogs(prev => [...prev, formattedLog])
+    })
+    return () => unsubscribe?.()
+  }, [])
 
   const addLog = (message: string) => {
     setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${message}`])
   }
 
   const handleCreateAudiobook = async () => {
-    if (!storyText.trim()) {
+    if (!state.storyText.trim()) {
       alert('Vui lòng nhập nội dung truyện')
       return
     }
@@ -76,6 +197,9 @@ function HomeTab() {
     try {
       addLog('Bắt đầu quy trình tạo audiobook...')
 
+      // Extract project name from first line of story
+      const projectName = state.storyText.split('\n')[0].trim() || 'Untitled'
+
       // Listen for progress updates from Electron main process
       const unsubscribe = window.api?.onPipelineProgress?.((step) => {
         setProgress(step.progress)
@@ -86,12 +210,12 @@ function HomeTab() {
       console.log('📱 UI: Sending pipeline config to IPC handler')
       const result = await window.api?.startPipeline?.({
         // Story content
-        storyText,
-        storyTitle: storyText.split('\n')[0] || 'Untitled',
+        storyText: state.storyText,
+        storyTitle: projectName,
 
         // Input files from C:\dev\audiobook-uploader\input\
         bannerImagePath: 'C:\\dev\\audiobook-uploader\\input\\image\\video_banner.png',
-        cookingVideoPath: douyinUrl || 'C:\\dev\\audiobook-uploader\\input\\video\\douyin_video.mp4', // TODO: Implement actual Douyin download
+        cookingVideoPath: 'C:\\dev\\audiobook-uploader\\input\\video\\douyin_video.mp4', // Fallback video
         backgroundMusicPath: 'C:\\dev\\audiobook-uploader\\input\\music\\bg-music.m4a',
         avatarImagePath: 'C:\\dev\\audiobook-uploader\\input\\image\\avatar.png',
 
@@ -102,6 +226,7 @@ function HomeTab() {
         // Settings
         videoDuration: 60,
         uploadToYoutube: false, // Disabled for now (requires YouTube auth)
+        douyinUrl: state.douyinUrl || undefined, // Pass Douyin URL if provided
       })
 
       console.log('📱 UI: Received result from IPC handler:', result)
@@ -116,6 +241,16 @@ function HomeTab() {
         addLog(`Video: ${result.videoPath}`)
         addLog(`Thumbnail: ${result.thumbnailPath}`)
         alert('Tạo audiobook thành công!')
+
+        // Call callback to refresh history
+        onSuccess()
+
+        // Reset home tab state for next project
+        setState({
+          storyText: '',
+          douyinUrl: '',
+          selectedVoice: 'n_hanoi_female_nguyetnga2_book_vc',
+        })
       } else {
         console.log('❌ UI: Pipeline failed with error:', result?.error)
         const errorMsg = result?.error || 'Unknown error - Pipeline'
@@ -129,7 +264,6 @@ function HomeTab() {
         })
         alert(`Lỗi:\n${errorMsg}`)
       }
-
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error)
       // Split multiline error messages and add each line
@@ -152,14 +286,12 @@ function HomeTab() {
         <h2>Nội Dung Truyện</h2>
         <textarea
           className="story-input"
-          value={storyText}
-          onChange={(e) => setStoryText(e.target.value)}
+          value={state.storyText}
+          onChange={(e) => setState({ ...state, storyText: e.target.value })}
           placeholder="Nhập nội dung truyện tại đây... (Có thể dán từ file hoặc trang web)"
           disabled={isProcessing}
         />
-        <div className="form-info">
-          {storyText.length} ký tự
-        </div>
+        <div className="form-info">{state.storyText.length} ký tự</div>
       </div>
 
       <div className="form-row">
@@ -168,9 +300,14 @@ function HomeTab() {
           <input
             type="text"
             className="form-input"
-            value={douyinUrl}
-            onChange={(e) => setDouyinUrl(e.target.value)}
-            placeholder="https://www.douyin.com/..."
+            value={state.douyinUrl}
+            onChange={(e) => {
+              // Auto-extract Douyin URL from pasted content
+              const input = e.target.value
+              const extractedUrl = extractDouyinUrlFromText(input) || input
+              setState({ ...state, douyinUrl: extractedUrl })
+            }}
+            placeholder="https://www.douyin.com/... (hoặc dán nội dung chứa link)"
             disabled={isProcessing}
           />
         </div>
@@ -179,12 +316,12 @@ function HomeTab() {
           <label>Chọn Giọng Đọc:</label>
           <select
             className="form-input"
-            value={selectedVoice}
-            onChange={(e) => setSelectedVoice(e.target.value)}
+            value={state.selectedVoice}
+            onChange={(e) => setState({ ...state, selectedVoice: e.target.value })}
             disabled={isProcessing}
           >
             <option value="n_hanoi_female_nguyetnga2_book_vc">
-              🎙️ Nguyễt Nga (Nữ - Audiobook) ⭐
+              🎙️ Nguyệt Nga (Nữ - Audiobook) ⭐
             </option>
             <option value="hn_female_ngochuyen_full_48k-fhg">
               🎙️ Ngọc Huyền (Nữ)
@@ -199,7 +336,7 @@ function HomeTab() {
       <button
         className="btn-primary"
         onClick={handleCreateAudiobook}
-        disabled={isProcessing || !storyText.trim()}
+        disabled={isProcessing || !state.storyText.trim()}
       >
         {isProcessing ? 'Đang Xử Lý...' : '▶️ Tạo Audiobook'}
       </button>
@@ -207,10 +344,7 @@ function HomeTab() {
       {isProcessing && (
         <div className="progress-section">
           <div className="progress-bar">
-            <div
-              className="progress-fill"
-              style={{ width: `${progress}%` }}
-            />
+            <div className="progress-fill" style={{ width: `${progress}%` }} />
           </div>
           <div className="progress-text">{progress}%</div>
         </div>
@@ -218,8 +352,8 @@ function HomeTab() {
 
       {logs.length > 0 && (
         <div className="logs-section">
-          <h3>Nhật Ký</h3>
-          <div className="logs-container">
+          <h3>Nhật Ký ({logs.length} entries)</h3>
+          <div className="logs-container" ref={logsContainerRef}>
             {logs.map((log, idx) => (
               <div key={idx} className="log-line">
                 {log}
@@ -232,12 +366,15 @@ function HomeTab() {
   )
 }
 
-function SettingsTab() {
-  const [apiKey, setApiKey] = useState('')
-  const [appId, setAppId] = useState('')
-  const [youtubeKey, setYoutubeKey] = useState('')
-  const [outputDir, setOutputDir] = useState('./output')
-
+function SettingsTab({
+  state,
+  setState,
+  envConfig,
+}: {
+  state: SettingsTabState
+  setState: (state: SettingsTabState) => void
+  envConfig: EnvConfig
+}) {
   const handleSaveSettings = () => {
     alert('Cài đặt đã được lưu!')
   }
@@ -251,34 +388,60 @@ function SettingsTab() {
           <input
             type="password"
             className="form-input"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="Nhập Vbee API Key"
+            value={envConfig.VBEE_API_KEY || ''}
+            readOnly
+            placeholder={envConfig.VBEE_API_KEY ? '(Loaded from .env)' : 'Not configured'}
           />
+          <div className="form-info">
+            {envConfig.VBEE_API_KEY ? '✓ Configured in .env' : '⚠ Not configured'}
+          </div>
         </div>
         <div className="form-group">
           <label>App ID:</label>
           <input
             type="text"
             className="form-input"
-            value={appId}
-            onChange={(e) => setAppId(e.target.value)}
-            placeholder="Nhập Vbee App ID"
+            value={envConfig.VBEE_APP_ID || ''}
+            readOnly
+            placeholder={envConfig.VBEE_APP_ID ? '(Loaded from .env)' : 'Not configured'}
           />
+          <div className="form-info">
+            {envConfig.VBEE_APP_ID ? '✓ Configured in .env' : '⚠ Not configured'}
+          </div>
         </div>
       </div>
 
       <div className="settings-group">
-        <h3>YouTube API</h3>
+        <h3>Gemini API</h3>
         <div className="form-group">
           <label>API Key:</label>
           <input
             type="password"
             className="form-input"
-            value={youtubeKey}
-            onChange={(e) => setYoutubeKey(e.target.value)}
-            placeholder="Nhập YouTube API Key"
+            value={envConfig.GEMINI_API_KEY || ''}
+            readOnly
+            placeholder={envConfig.GEMINI_API_KEY ? '(Loaded from .env)' : 'Not configured'}
           />
+          <div className="form-info">
+            {envConfig.GEMINI_API_KEY ? '✓ Configured in .env' : '⚠ Not configured'}
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <h3>Comet API (Nano Banana)</h3>
+        <div className="form-group">
+          <label>API Key:</label>
+          <input
+            type="password"
+            className="form-input"
+            value={envConfig.COMET_API_KEY || ''}
+            readOnly
+            placeholder={envConfig.COMET_API_KEY ? '(Loaded from .env)' : 'Not configured'}
+          />
+          <div className="form-info">
+            {envConfig.COMET_API_KEY ? '✓ Configured in .env' : '⚠ Not configured'}
+          </div>
         </div>
       </div>
 
@@ -289,8 +452,8 @@ function SettingsTab() {
           <input
             type="text"
             className="form-input"
-            value={outputDir}
-            onChange={(e) => setOutputDir(e.target.value)}
+            value={state.outputDir}
+            onChange={(e) => setState({ ...state, outputDir: e.target.value })}
             placeholder="Đường dẫn thư mục output"
           />
         </div>
@@ -303,59 +466,42 @@ function SettingsTab() {
   )
 }
 
-function HistoryTab() {
-  const [history] = useState([
-    {
-      id: 1,
-      title: 'Truyện 1: Nàng tiên cá',
-      date: '2026-02-18 14:30',
-      duration: '45:30',
-      status: '✅ Hoàn thành',
-    },
-    {
-      id: 2,
-      title: 'Truyện 2: Công chúa mưa',
-      date: '2026-02-18 10:15',
-      duration: '32:15',
-      status: '✅ Hoàn thành',
-    },
-    {
-      id: 3,
-      title: 'Truyện 3: Lâu đài ma quái',
-      date: '2026-02-17 16:45',
-      duration: '58:45',
-      status: '✅ Hoàn thành',
-    },
-  ])
-
+function HistoryTab({ projects }: { projects: Project[] }) {
   return (
     <div className="history-tab">
       <h2>Lịch Sử Tạo Audiobook</h2>
-      <table className="history-table">
-        <thead>
-          <tr>
-            <th>Tiêu Đề</th>
-            <th>Ngày Tạo</th>
-            <th>Thời Lượng</th>
-            <th>Trạng Thái</th>
-            <th>Hành Động</th>
-          </tr>
-        </thead>
-        <tbody>
-          {history.map(item => (
-            <tr key={item.id}>
-              <td>{item.title}</td>
-              <td>{item.date}</td>
-              <td>{item.duration}</td>
-              <td>{item.status}</td>
-              <td>
-                <button className="btn-small">Xem</button>
-                <button className="btn-small">Xóa</button>
-              </td>
+      {projects.length === 0 ? (
+        <div className="empty-state">
+          <p>Chưa có dự án nào. Hãy tạo audiobook đầu tiên của bạn!</p>
+        </div>
+      ) : (
+        <table className="history-table">
+          <thead>
+            <tr>
+              <th>Tên Dự Án</th>
+              <th>Ngày Tạo</th>
+              <th>Thời Lượng</th>
+              <th>Trạng Thái</th>
+              <th>Hành Động</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {projects.map((item) => (
+              <tr key={item.id}>
+                <td>{item.name}</td>
+                <td>{item.date}</td>
+                <td>{item.duration}</td>
+                <td>{item.status === 'completed' ? '✅ Hoàn thành' : '❌ Thất bại'}</td>
+                <td>
+                  <button className="btn-small" onClick={() => window.shell?.openPath(item.outputPath)}>
+                    📁 Mở Thư Mục
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   )
 }

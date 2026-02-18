@@ -69,28 +69,48 @@ async function getVideoEncoder(): Promise<{ codec: string; options: string[] }> 
       options: ['-q:v', '4'],
     }
   } else if (platform === 'win32') {
-    // Windows - try Intel Quick Sync first, fallback to libx264
+    // Windows - try hardware encoders in order: NVENC > Intel QSV > libx264
+    const ffmpegPath = await getFFmpegPath()
+
+    // Try NVIDIA NVENC first (fastest)
     try {
-      const ffmpegPath = await getFFmpegPath()
-      const { stdout } = await execAsync(`"${ffmpegPath}" -encoders 2>&1 | findstr h264_qsv`)
-      if (stdout.includes('h264_qsv')) {
+      const { stdout: stdoutNvenc } = await execAsync(`"${ffmpegPath}" -encoders 2>&1`)
+      if (stdoutNvenc.includes('h264_nvenc')) {
+        logger.info('✅ Using NVIDIA NVENC (GPU encoding - fastest)')
         return {
-          codec: 'h264_qsv',
-          options: ['-q:v', '4'],
+          codec: 'h264_nvenc',
+          options: ['-preset', 'fast', '-rc', 'vbr', '-cq', '23'],
         }
       }
     } catch {
-      logger.debug('Intel Quick Sync not available, using libx264')
+      logger.debug('NVIDIA NVENC not available')
     }
+
+    // Try Intel Quick Sync second
+    try {
+      const { stdout: stdoutQsv } = await execAsync(`"${ffmpegPath}" -encoders 2>&1`)
+      if (stdoutQsv.includes('h264_qsv')) {
+        logger.info('✅ Using Intel Quick Sync (GPU encoding - fast)')
+        return {
+          codec: 'h264_qsv',
+          options: ['-preset', 'fast', '-q:v', '23'],
+        }
+      }
+    } catch {
+      logger.debug('Intel Quick Sync not available')
+    }
+
+    // Fallback to software encoding (slowest but always available)
+    logger.warn('⚠️ Using libx264 software encoding (slow) - consider installing GPU drivers for faster encoding')
     return {
       codec: 'libx264',
-      options: ['-preset', 'fast', '-crf', '23'],
+      options: ['-preset', 'ultrafast', '-crf', '28'],  // Even faster preset for software
     }
   } else {
     // Linux
     return {
       codec: 'libx264',
-      options: ['-preset', 'fast', '-crf', '23'],
+      options: ['-preset', 'ultrafast', '-crf', '28'],  // Optimize for speed
     }
   }
 }
@@ -305,6 +325,58 @@ export async function convertVideoResolution(
   }
 }
 
+/**
+ * Mix voiceover audio with background music
+ * voiceover: 100% volume (full)
+ * backgroundMusic: 50% volume (half)
+ * Output: Both mixed together
+ */
+export async function mixVoiceoverWithMusic(
+  voiceoverPath: string,
+  backgroundMusicPath: string,
+  outputPath: string
+): Promise<void> {
+  try {
+    logger.info(`🎵 Mixing voiceover (100%) with background music (50%)`)
+
+    const ffmpegPath = await getFFmpegPath()
+
+    // FFmpeg filter:
+    // [0:a] = voiceover at 100% (volume=1.0)
+    // [1:a] = background music at 50% (volume=0.5)
+    // amix=inputs=2:duration=first = mix both, use first input's duration
+    const audioFilter = `[0:a]volume=1.0[v0];[1:a]volume=0.5[v1];[v0][v1]amix=inputs=2:duration=first[a_out]`
+
+    const command = [
+      `"${ffmpegPath}"`,
+      '-i', `"${voiceoverPath}"`,
+      '-i', `"${backgroundMusicPath}"`,
+      '-filter_complex', `"${audioFilter}"`,
+      '-map', '[a_out]',
+      '-c:a', 'aac',
+      '-b:a', '192k',
+      '-y',
+      `"${outputPath}"`,
+    ].join(' ')
+
+    logger.debug(`FFmpeg mix command: ${command}`)
+
+    const { stderr } = await execAsync(command, {
+      maxBuffer: 50 * 1024 * 1024,
+      timeout: 600000,
+    })
+
+    if (stderr) {
+      logger.debug(`FFmpeg output: ${stderr}`)
+    }
+
+    logger.info(`✅ Audio mixing completed: ${outputPath}`)
+  } catch (error) {
+    logger.error('Failed to mix voiceover with music', error)
+    throw error
+  }
+}
+
 // Compose video with banner background, looped cooking video in center, and background music
 // This is specifically for the audiobook + cooking video format
 export async function composeBannerVideo(
@@ -313,7 +385,8 @@ export async function composeBannerVideo(
   backgroundMusicPath: string,   // bg-music.m4a OR voiceover.mp3 (audio)
   outputPath: string,
   videoDuration: number = 60,    // Duration in seconds (default 60s)
-  isVoiceover: boolean = false   // If true, use as voiceover without volume reduction; if false, apply 50% volume as background music
+  isVoiceover: boolean = false,  // If true, use as voiceover without volume reduction; if false, apply 50% volume as background music
+  onProgress?: (message: string, progress: number) => void  // Progress callback (message, 0-100)
 ): Promise<OutputVideo> {
   try {
     logger.info('Starting banner video composition with looped cooking video')
@@ -389,17 +462,45 @@ export async function composeBannerVideo(
 
     logger.debug(`Executing FFmpeg composite: ${command}`)
 
+    // Estimate encoding time based on encoder
+    let encodingEstimate = Math.round(videoDuration / 30)
+    if (encoder.codec === 'h264_nvenc') {
+      encodingEstimate = Math.round(videoDuration / 120)  // NVENC is ~4x faster
+    } else if (encoder.codec === 'h264_qsv') {
+      encodingEstimate = Math.round(videoDuration / 60)   // QSV is ~2x faster
+    } else {
+      encodingEstimate = Math.round(videoDuration / 10)   // Software is slower (~10 fps)
+    }
+
+    logger.info(`🎬 Starting FFmpeg encoding with ${encoder.codec}: ${videoDuration}s video (estimate: ${encodingEstimate} minute${encodingEstimate !== 1 ? 's' : ''})`)
+
+    const startTime = Date.now()
+    onProgress?.(`Starting FFmpeg encoding for ${videoDuration}s video...`, 0)
+
     // Execute FFmpeg
     const { stderr } = await execAsync(command, {
       maxBuffer: 50 * 1024 * 1024,
-      timeout: 600000, // 10 minutes
+      timeout: 600000, // 10 minutes - may need to increase for very long videos
     })
+
+    const elapsedSeconds = Math.round((Date.now() - startTime) / 1000)
+    const fps = Math.round((videoDuration * 30) / elapsedSeconds)
 
     if (stderr) {
       logger.debug(`FFmpeg output: ${stderr}`)
+
+      // Try to extract encoding progress from stderr
+      const frameMatch = stderr.match(/frame=\s*(\d+)/)
+      if (frameMatch) {
+        const currentFrame = parseInt(frameMatch[1])
+        const totalFrames = videoDuration * 30
+        const progress = Math.round((currentFrame / totalFrames) * 100)
+        onProgress?.(`Encoding video... ${progress}% (${fps} fps)`, progress)
+      }
     }
 
-    logger.info(`Banner video composition completed: ${outputPath}`)
+    onProgress?.(`✅ FFmpeg encoding completed in ${elapsedSeconds}s`, 100)
+    logger.info(`✅ Banner video composition completed: ${outputPath} (${elapsedSeconds}s, ${fps} fps)`)
 
     return {
       path: outputPath,

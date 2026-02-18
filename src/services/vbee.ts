@@ -1,8 +1,14 @@
 import axios, { AxiosInstance } from 'axios'
-import { writeFile } from 'fs/promises'
+import { writeFile, unlink } from 'fs/promises'
+import { exec } from 'child_process'
+import { promisify } from 'util'
 import https from 'https'
+import path from 'path'
 import { createLogger } from '../utils/logger'
+import { getFFmpegPath } from '../utils/ffmpeg-setup'
 import type { AudioFile } from '../types'
+
+const execAsync = promisify(exec)
 
 const logger = createLogger('vbee-service')
 
@@ -202,12 +208,61 @@ async function downloadAudio(audioUrl: string): Promise<Buffer> {
   }
 }
 
-// Concatenate multiple audio buffers (use FFmpeg in production)
-function concatenateAudioBuffers(buffers: Buffer[]): Buffer {
-  // For MP3 files, simple concatenation may not work perfectly
-  // In production, use FFmpeg to properly concatenate audio files
-  logger.warn('Using simple buffer concatenation - consider using FFmpeg for better results')
-  return Buffer.concat(buffers)
+// Concatenate multiple MP3 files using FFmpeg (correct way to merge MP3s)
+async function concatenateAudioFiles(
+  audioFilePaths: string[],
+  outputPath: string
+): Promise<void> {
+  if (audioFilePaths.length === 1) {
+    // Only one file, no need to concatenate
+    return
+  }
+
+  try {
+    logger.info(`Concatenating ${audioFilePaths.length} MP3 files using FFmpeg`)
+
+    const ffmpegPath = await getFFmpegPath()
+
+    // Create concat demuxer file
+    const concatContent = audioFilePaths
+      .map((filePath) => `file '${filePath.replace(/'/g, "\\'")}'`)
+      .join('\n')
+
+    const concatFilePath = path.join(path.dirname(outputPath), 'concat_list.txt')
+    await writeFile(concatFilePath, concatContent)
+
+    // Use FFmpeg concat demuxer to merge MP3 files
+    const command = [
+      `"${ffmpegPath}"`,
+      '-f', 'concat',
+      '-safe', '0',
+      '-i', `"${concatFilePath}"`,
+      '-c', 'copy',  // Copy codec (no re-encoding needed)
+      '-y',
+      `"${outputPath}"`,
+    ].join(' ')
+
+    logger.debug(`Executing FFmpeg concat: ${command}`)
+
+    const { stderr } = await execAsync(command, {
+      maxBuffer: 50 * 1024 * 1024,
+      timeout: 120000,
+    })
+
+    if (stderr) {
+      logger.debug(`FFmpeg concat output: ${stderr}`)
+    }
+
+    // Clean up concat file
+    await unlink(concatFilePath).catch(() => {
+      // Ignore error if file doesn't exist
+    })
+
+    logger.info(`MP3 files concatenated successfully: ${outputPath}`)
+  } catch (error) {
+    logger.error('Failed to concatenate audio files', error)
+    throw error
+  }
 }
 
 // Main function: Convert text to speech with proper polling
@@ -234,48 +289,77 @@ export async function convertTextToSpeech(
 
     const apiClient = initializeClient(config.apiKey)
 
-    // For now, handle as single request (implement chunking if text is very long)
     // Vbee has character limits, so we should chunk large texts
     const chunks = splitTextIntoChunks(text, 2000)
     logger.info(`Split text into ${chunks.length} chunk(s)`)
 
-    const audioBuffers: Buffer[] = []
+    const chunkFilePaths: string[] = []
+    let totalDuration = 0
 
-    for (const chunk of chunks) {
-      try {
-        logger.info(`Converting chunk ${chunk.index + 1}/${chunks.length}`)
+    try {
+      for (const chunk of chunks) {
+        try {
+          logger.info(`Converting chunk ${chunk.index + 1}/${chunks.length}`)
 
-        // Submit TTS request
-        const requestId = await submitTtsRequest(apiClient, chunk.text, config)
+          // Submit TTS request
+          const requestId = await submitTtsRequest(apiClient, chunk.text, config)
 
-        // Poll for completion
-        const audioUrl = await pollTtsStatus(apiClient, requestId)
+          // Poll for completion
+          const audioUrl = await pollTtsStatus(apiClient, requestId)
 
-        // Download audio
-        const audioBuffer = await downloadAudio(audioUrl)
-        audioBuffers.push(audioBuffer)
+          // Download audio
+          const audioBuffer = await downloadAudio(audioUrl)
 
-        logger.info(`Chunk ${chunk.index + 1} converted successfully (${audioBuffer.length} bytes)`)
-      } catch (error) {
-        logger.error(`Failed to convert chunk ${chunk.index + 1}`, error)
-        throw error
+          // Save chunk to temporary file
+          const chunkFilePath = path.join(
+            path.dirname(outputPath),
+            `chunk_${chunk.index}.mp3`
+          )
+          await writeFile(chunkFilePath, audioBuffer)
+          chunkFilePaths.push(chunkFilePath)
+
+          // Calculate duration
+          const chunkDuration = calculateAudioDuration(audioBuffer)
+          totalDuration += chunkDuration
+
+          logger.info(`Chunk ${chunk.index + 1} converted: ${audioBuffer.length} bytes, ${chunkDuration}s`)
+        } catch (error) {
+          logger.error(`Failed to convert chunk ${chunk.index + 1}`, error)
+          throw error
+        }
       }
-    }
 
-    // Concatenate all audio
-    const finalAudio = concatenateAudioBuffers(audioBuffers)
+      // Concatenate all chunks using FFmpeg
+      if (chunkFilePaths.length > 1) {
+        logger.info(`Concatenating ${chunkFilePaths.length} chunks using FFmpeg`)
+        await concatenateAudioFiles(chunkFilePaths, outputPath)
+      } else if (chunkFilePaths.length === 1) {
+        // Only one chunk, just rename it
+        const fs = await import('fs/promises')
+        await fs.rename(chunkFilePaths[0], outputPath)
+      }
 
-    // Save to file
-    await writeFile(outputPath, finalAudio)
-    logger.info(`Audio saved to ${outputPath} (${finalAudio.length} bytes)`)
+      // Get file size
+      const fs = await import('fs/promises')
+      const stats = await fs.stat(outputPath)
 
-    return {
-      path: outputPath,
-      duration: calculateAudioDuration(finalAudio),
-      sampleRate: 48000, // Vbee default for hn_female voices
-      channels: 1,
-      format: 'mp3',
-      fileSize: finalAudio.length,
+      logger.info(`Audio saved to ${outputPath} (${stats.size} bytes, ${totalDuration}s)`)
+
+      return {
+        path: outputPath,
+        duration: totalDuration,
+        sampleRate: 48000, // Vbee default for hn_female voices
+        channels: 1,
+        format: 'mp3',
+        fileSize: stats.size,
+      }
+    } finally {
+      // Clean up temporary chunk files
+      for (const chunkPath of chunkFilePaths) {
+        await unlink(chunkPath).catch(() => {
+          // Ignore errors
+        })
+      }
     }
   } catch (error) {
     logger.error('Failed to convert text to speech', error)
@@ -306,43 +390,73 @@ export async function convertChunkedTextToSpeech(
     logger.info(`Converting ${textChunks.length} text chunks to speech`)
 
     const apiClient = initializeClient(config.apiKey)
-    const audioBuffers: Buffer[] = []
+    const chunkFilePaths: string[] = []
+    let totalDuration = 0
 
-    for (let i = 0; i < textChunks.length; i++) {
-      try {
-        logger.info(`Converting chunk ${i + 1}/${textChunks.length}`)
+    try {
+      for (let i = 0; i < textChunks.length; i++) {
+        try {
+          logger.info(`Converting chunk ${i + 1}/${textChunks.length}`)
 
-        // Submit TTS request
-        const requestId = await submitTtsRequest(apiClient, textChunks[i], config)
+          // Submit TTS request
+          const requestId = await submitTtsRequest(apiClient, textChunks[i], config)
 
-        // Poll for completion
-        const audioUrl = await pollTtsStatus(apiClient, requestId)
+          // Poll for completion
+          const audioUrl = await pollTtsStatus(apiClient, requestId)
 
-        // Download audio
-        const audioBuffer = await downloadAudio(audioUrl)
-        audioBuffers.push(audioBuffer)
+          // Download audio
+          const audioBuffer = await downloadAudio(audioUrl)
 
-        logger.info(`Chunk ${i + 1} converted successfully (${audioBuffer.length} bytes)`)
-      } catch (error) {
-        logger.error(`Failed to convert chunk ${i + 1}`, error)
-        throw error
+          // Save chunk to temporary file
+          const chunkFilePath = path.join(
+            path.dirname(outputPath),
+            `chunk_${i}.mp3`
+          )
+          await writeFile(chunkFilePath, audioBuffer)
+          chunkFilePaths.push(chunkFilePath)
+
+          // Calculate duration
+          const chunkDuration = calculateAudioDuration(audioBuffer)
+          totalDuration += chunkDuration
+
+          logger.info(`Chunk ${i + 1} converted: ${audioBuffer.length} bytes, ${chunkDuration}s`)
+        } catch (error) {
+          logger.error(`Failed to convert chunk ${i + 1}`, error)
+          throw error
+        }
       }
-    }
 
-    // Concatenate all audio
-    const finalAudio = concatenateAudioBuffers(audioBuffers)
+      // Concatenate all chunks using FFmpeg
+      if (chunkFilePaths.length > 1) {
+        logger.info(`Concatenating ${chunkFilePaths.length} chunks using FFmpeg`)
+        await concatenateAudioFiles(chunkFilePaths, outputPath)
+      } else if (chunkFilePaths.length === 1) {
+        // Only one chunk, just rename it
+        const fs = await import('fs/promises')
+        await fs.rename(chunkFilePaths[0], outputPath)
+      }
 
-    // Save to file
-    await writeFile(outputPath, finalAudio)
-    logger.info(`Audio saved to ${outputPath} (${finalAudio.length} bytes)`)
+      // Get file size
+      const fs = await import('fs/promises')
+      const stats = await fs.stat(outputPath)
 
-    return {
-      path: outputPath,
-      duration: calculateAudioDuration(finalAudio),
-      sampleRate: 48000,
-      channels: 1,
-      format: 'mp3',
-      fileSize: finalAudio.length,
+      logger.info(`Audio saved to ${outputPath} (${stats.size} bytes, ${totalDuration}s)`)
+
+      return {
+        path: outputPath,
+        duration: totalDuration,
+        sampleRate: 48000,
+        channels: 1,
+        format: 'mp3',
+        fileSize: stats.size,
+      }
+    } finally {
+      // Clean up temporary chunk files
+      for (const chunkPath of chunkFilePaths) {
+        await unlink(chunkPath).catch(() => {
+          // Ignore errors
+        })
+      }
     }
   } catch (error) {
     logger.error('Failed to convert chunked text to speech', error)
@@ -393,7 +507,7 @@ export async function getAvailableVoices(): Promise<
   return [
     {
       code: 'n_hanoi_female_nguyetnga2_book_vc',
-      name: 'Nguyễt Nga (Nữ - Audiobook) ⭐',
+      name: 'Nguyệt Nga (Nữ - Audiobook) ⭐',
       language: 'vi-VN',
     },
     {

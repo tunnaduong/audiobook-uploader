@@ -304,6 +304,22 @@
   padding-bottom: 5px;
 }
 
+/* Empty State */
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  text-align: center;
+  color: #999;
+  font-style: italic;
+}
+
+.empty-state p {
+  margin: 0;
+  font-size: 14px;
+}
+
 /* History Tab */
 .history-tab {
   max-width: 1000px;

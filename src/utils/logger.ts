@@ -5,7 +5,7 @@ import { createWriteStream } from 'fs'
 
 export type LogLevel = 'error' | 'warn' | 'info' | 'debug'
 
-interface LogEntry {
+export interface LogEntry {
   timestamp: string
   level: LogLevel
   module: string
@@ -23,6 +23,7 @@ const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
 let currentLogLevel: LogLevel = (process.env.LOG_LEVEL as LogLevel) || 'info'
 let logDirectory: string | null = null
 let logStream: NodeJS.WritableStream | null = null
+let logListeners: ((entry: LogEntry) => void)[] = []
 
 export function getLogDirectory(): string {
   if (!logDirectory) {
@@ -47,6 +48,14 @@ export function setLogLevel(level: LogLevel): void {
   currentLogLevel = level
 }
 
+export function onLog(listener: (entry: LogEntry) => void): () => void {
+  logListeners.push(listener)
+  // Return unsubscribe function
+  return () => {
+    logListeners = logListeners.filter(l => l !== listener)
+  }
+}
+
 function formatLogEntry(entry: LogEntry): string {
   const { timestamp, level, module, message, data } = entry
   const dataStr = data ? ` | ${JSON.stringify(data)}` : ''
@@ -68,6 +77,15 @@ function writeLog(entry: LogEntry): void {
   // File output
   if (logStream) {
     logStream.write(formatted + '\n')
+  }
+
+  // Notify all listeners (for UI display)
+  for (const listener of logListeners) {
+    try {
+      listener(entry)
+    } catch (err) {
+      console.error('Error in log listener:', err)
+    }
   }
 }
 

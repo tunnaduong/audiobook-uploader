@@ -93,7 +93,7 @@ export interface PipelineConfig {
 
   // Input files
   bannerImagePath: string         // video_banner.png
-  cookingVideoPath: string        // Douyin video
+  cookingVideoPath: string        // Cooking video file path (fallback if no Douyin URL)
   backgroundMusicPath: string     // bg-music.m4a
   avatarImagePath: string         // avatar.png for thumbnail style
 
@@ -105,6 +105,7 @@ export interface PipelineConfig {
   videoDuration?: number          // Duration in seconds (default 60)
   uploadToYoutube?: boolean       // Whether to upload after generation
   youtubeAccessToken?: string     // OAuth token for YouTube
+  douyinUrl?: string              // Optional: Douyin video URL to download
 }
 
 // Pipeline progress event
@@ -159,6 +160,24 @@ export interface PipelineStep {
   error?: string
 }
 
+// Environment configuration
+export interface EnvConfig {
+  VBEE_API_KEY?: string
+  VBEE_APP_ID?: string
+  GEMINI_API_KEY?: string
+  COMET_API_KEY?: string
+}
+
+// Project history item
+export interface ProjectHistory {
+  id: number
+  name: string
+  date: string
+  duration: string
+  status: 'completed' | 'failed'
+  outputPath: string
+}
+
 // IPC API interface
 export interface ElectronAPI {
   selectFolder(): Promise<string>
@@ -171,12 +190,21 @@ export interface ElectronAPI {
   getHistory(): Promise<Project[]>
   deleteProject(id: number): Promise<void>
   getSystemInfo(): Promise<SystemInfo>
+  getEnvConfig(): Promise<EnvConfig>
+  getProjectHistory(): Promise<ProjectHistory[]>
   onPipelineProgress(callback: (progress: PipelineProgress) => void): () => void
   onPipelineError(callback: (error: string) => void): () => void
+  onAppLog(callback: (log: { timestamp: string; level: string; module: string; message: string }) => void): () => void
+}
+
+// Shell API for file operations
+export interface ShellAPI {
+  openPath(path: string): Promise<string>
 }
 
 declare global {
   interface Window {
     api: ElectronAPI
+    shell: ShellAPI
   }
 }

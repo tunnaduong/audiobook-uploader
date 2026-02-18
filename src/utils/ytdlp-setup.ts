@@ -7,6 +7,17 @@ import { createLogger } from './logger'
 const logger = createLogger('ytdlp-setup')
 
 export async function getYtdlpPath(): Promise<string> {
+  // 0. Check if YTDLP_PATH is set in .env
+  if (process.env.YTDLP_PATH) {
+    try {
+      await fs.access(process.env.YTDLP_PATH)
+      logger.info(`✅ Using yt-dlp from .env: ${process.env.YTDLP_PATH}`)
+      return process.env.YTDLP_PATH
+    } catch {
+      logger.warn(`⚠️ YTDLP_PATH in .env not found: ${process.env.YTDLP_PATH}`)
+    }
+  }
+
   // 1. Check if yt-dlp is in the app's binary directory
   const appBinDir = getAppBinDirectory()
   const ytdlpName = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp'
@@ -14,7 +25,7 @@ export async function getYtdlpPath(): Promise<string> {
 
   try {
     await fs.access(bundledYtdlpPath)
-    logger.info(`Using bundled yt-dlp: ${bundledYtdlpPath}`)
+    logger.info(`✅ Using bundled yt-dlp: ${bundledYtdlpPath}`)
     return bundledYtdlpPath
   } catch {
     logger.debug('Bundled yt-dlp not found, checking global installation')
@@ -27,53 +38,16 @@ export async function getYtdlpPath(): Promise<string> {
     } else {
       execSync('which yt-dlp', { stdio: 'pipe' })
     }
-    logger.info('Using globally installed yt-dlp')
+    logger.info('✅ Using globally installed yt-dlp')
     return 'yt-dlp'
   } catch {
     logger.debug('yt-dlp not found globally')
   }
 
-  // 3. Download and setup yt-dlp
-  logger.info('Downloading yt-dlp...')
-  return downloadYtdlp()
-}
-
-async function downloadYtdlp(): Promise<string> {
-  const appBinDir = getAppBinDirectory()
-  const platform = process.platform
-  let downloadUrl = ''
-
-  // Build download URL based on platform
-  if (platform === 'darwin') {
-    // macOS (both Intel and Apple Silicon)
-    downloadUrl = 'https://github.com/yt-dlp/yt-dlp/releases/download/latest/yt-dlp_macos'
-  } else if (platform === 'win32') {
-    downloadUrl = 'https://github.com/yt-dlp/yt-dlp/releases/download/latest/yt-dlp.exe'
-  } else if (platform === 'linux') {
-    downloadUrl = 'https://github.com/yt-dlp/yt-dlp/releases/download/latest/yt-dlp'
-  }
-
-  try {
-    // Create bin directory if it doesn't exist
-    await fs.mkdir(appBinDir, { recursive: true })
-
-    logger.info(`Downloading yt-dlp from: ${downloadUrl}`)
-    // TODO: Implement actual download using node-fetch or axios
-    logger.warn('yt-dlp download not fully implemented yet')
-
-    const ytdlpName = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp'
-    const execPath = path.join(appBinDir, ytdlpName)
-
-    // Make executable on Unix-like systems
-    if (process.platform !== 'win32') {
-      await fs.chmod(execPath, '0755')
-    }
-
-    return execPath
-  } catch (error) {
-    logger.error(`Failed to download yt-dlp: ${error}`)
-    throw new Error('Failed to setup yt-dlp')
-  }
+  // 3. If all else fails, throw detailed error
+  const errorMsg = `❌ yt-dlp not found!\n\nSolutions:\n1. Download from: https://github.com/yt-dlp/yt-dlp/releases/download/latest/yt-dlp.exe\n2. Place it anywhere (e.g., C:\\yt-dlp\\yt-dlp.exe)\n3. Set in .env: YTDLP_PATH=C:\\path\\to\\yt-dlp.exe\nor set globally in PATH environment variable`
+  logger.error(errorMsg)
+  throw new Error(errorMsg)
 }
 
 export function getAppBinDirectory(): string {
