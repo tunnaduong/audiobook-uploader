@@ -351,13 +351,38 @@ export async function executePipeline(
 
     logger.info(`Generating thumbnail for: "${config.storyTitle}"`)
 
-    // Check if there's a previous thumbnail in the same folder to use as reference
+    // Check if there's a previous video's thumbnail to use as reference
     // This helps maintain visual consistency for multi-chapter stories
     let thumbnailReference = config.referenceImagePath
-    const previousThumbnailPath = config.outputThumbnailPath
-    if (fs.existsSync(previousThumbnailPath)) {
-      logger.info(`📖 Previous thumbnail found - using as reference for consistency`)
-      thumbnailReference = previousThumbnailPath
+
+    // Extract the parent directory and look for previous video folder
+    const thumbnailDir = path.dirname(config.outputThumbnailPath)
+    const videosParentDir = path.dirname(thumbnailDir)
+
+    // Try to find previous video folder (vid_N-1, vid_N-2, etc.)
+    try {
+      if (fs.existsSync(videosParentDir)) {
+        const folders = fs.readdirSync(videosParentDir)
+          .filter(f => f.match(/^vid_\d+$/))
+          .sort((a, b) => {
+            const numA = parseInt(a.replace('vid_', ''))
+            const numB = parseInt(b.replace('vid_', ''))
+            return numB - numA // Descending order
+          })
+
+        // Check if there's a previous folder with a thumbnail
+        if (folders.length > 1) {
+          const previousFolder = folders[1] // Second most recent folder
+          const previousThumbnailPath = path.join(videosParentDir, previousFolder, 'thumbnail.jpg')
+
+          if (fs.existsSync(previousThumbnailPath)) {
+            logger.info(`📖 Previous thumbnail found in ${previousFolder} - using as reference for consistency`)
+            thumbnailReference = previousThumbnailPath
+          }
+        }
+      }
+    } catch (error) {
+      logger.warn(`Could not find previous thumbnail for reference: ${error}`)
     }
 
     const thumbnailResult = await generateModernOrientalThumbnail(

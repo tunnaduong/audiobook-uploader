@@ -102,6 +102,9 @@ export async function initializeDatabase(): Promise<any> {
       CREATE INDEX IF NOT EXISTS idx_outputs_project_id ON outputs(project_id);
     `)
 
+    // Run migrations to handle schema updates for existing databases
+    await runDatabaseMigrations()
+
     // Save database to disk
     await saveDatabaseToDisk()
 
@@ -110,6 +113,31 @@ export async function initializeDatabase(): Promise<any> {
   } catch (error) {
     logger.error('Failed to initialize database', error)
     throw error
+  }
+}
+
+/**
+ * Run database migrations to update schema for existing databases
+ * This handles cases where existing databases don't have newly added columns
+ */
+async function runDatabaseMigrations(): Promise<void> {
+  if (!db) return
+
+  try {
+    // Migration 1: Add duration column to outputs table if it doesn't exist
+    try {
+      db.run('ALTER TABLE outputs ADD COLUMN duration INTEGER')
+      logger.info('✅ Migration: Added duration column to outputs table')
+    } catch (error: any) {
+      if (error.message && error.message.includes('duplicate column')) {
+        logger.debug('Duration column already exists in outputs table')
+      } else {
+        throw error
+      }
+    }
+  } catch (error) {
+    logger.warn('Database migration warning:', error)
+    // Don't throw - migrations are non-critical if column already exists
   }
 }
 
