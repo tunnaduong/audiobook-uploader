@@ -740,6 +740,9 @@ function HomeTab({
               Connect YouTube in Settings to enable auto-upload
             </div>
           )}
+        </div>
+      </div>
+
       {/* Reuse Options */}
       <div className="form-section">
         <h3>⚙️ Tùy Chọn Tạo Video</h3>

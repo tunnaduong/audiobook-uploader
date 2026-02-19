@@ -207,6 +207,8 @@ export interface YouTubeLoginResult {
   success: boolean
   channelTitle?: string
   error?: string
+}
+
 // EPUB chapter information
 export interface EpubChapter {
   id: string                // Unique identifier (e.g., "ch1", "chapter_2")
