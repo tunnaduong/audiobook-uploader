@@ -54,12 +54,16 @@ export interface PipelineConfig {
   outputVideoPath: string
   outputThumbnailPath: string
 
+  // Voice settings
+  voiceId?: string                // TTS voice ID for audio generation (default: n_hanoi_female_nguyetnga2_book_vc)
+
   // Optional settings
   videoDuration?: number          // Duration in seconds (default 60)
   uploadToYoutube?: boolean       // Whether to upload after generation
   youtubeAccessToken?: string     // OAuth token for YouTube
   douyinUrl?: string              // Optional: Download Douyin video if provided
   resumeOnExist?: boolean         // Skip steps if intermediate files exist (mixed_audio, voiceover, final_video)
+  reuseExistingThumbnail?: boolean // Reuse existing thumbnail.jpg if available (skip Gemini generation)
 }
 
 export interface PipelineResult {
@@ -181,14 +185,24 @@ export async function executePipeline(
 
     let finalCookingVideoPath: string = config.cookingVideoPath
     const cookingVideoOutputPath = path.join(outputDir, 'final_video.mp4')
+    const videoMp4Path = path.join(outputDir, 'video.mp4')
 
-    // Check if final_video.mp4 already exists - if so, skip Douyin download
-    if (config.resumeOnExist && fs.existsSync(cookingVideoOutputPath)) {
-      logger.info('📹 Final video already exists - skipping Douyin download')
-      finalCookingVideoPath = cookingVideoOutputPath
+    // Check if video.mp4 or final_video.mp4 already exists - if so, skip Douyin download
+    let existingVideoPath: string | null = null
+    if (config.resumeOnExist) {
+      if (fs.existsSync(videoMp4Path)) {
+        existingVideoPath = videoMp4Path
+      } else if (fs.existsSync(cookingVideoOutputPath)) {
+        existingVideoPath = cookingVideoOutputPath
+      }
+    }
+
+    if (existingVideoPath) {
+      logger.info(`📹 Existing video found - skipping Douyin download: ${path.basename(existingVideoPath)}`)
+      finalCookingVideoPath = existingVideoPath
       steps[1].status = 'completed'
       steps[1].progress = 100
-      steps[1].message = 'Douyin download skipped (final_video.mp4 exists)'
+      steps[1].message = `Using existing video (${path.basename(existingVideoPath)})`
     } else if (config.douyinUrl !== undefined && isValidDouyinUrl(config.douyinUrl)) {
       try {
         logger.info(`🎬 Douyin URL detected: ${config.douyinUrl}`)
@@ -235,7 +249,8 @@ export async function executePipeline(
       logger.info(`Converting story text to speech: "${config.storyTitle}"`)
       audioResult = await convertTextToSpeech(
         config.storyText,
-        voiceoverPath
+        voiceoverPath,
+        config.voiceId
       )
       steps[2].status = 'completed'
       steps[2].progress = 100
@@ -387,20 +402,31 @@ export async function executePipeline(
       logger.warn(`Could not find previous thumbnail for reference: ${error}`)
     }
 
-    const thumbnailResult = await generateModernOrientalThumbnail(
-      config.avatarImagePath,
-      config.storyTitle,
-      config.outputThumbnailPath,
-      thumbnailReference
-    )
+    // Check if we should reuse existing thumbnail
+    if (config.reuseExistingThumbnail && fs.existsSync(config.outputThumbnailPath)) {
+      logger.info(`📖 Reusing existing thumbnail: ${config.outputThumbnailPath}`)
+      steps[5].status = 'completed'
+      steps[5].progress = 100
+      steps[5].message = `Thumbnail reused (existing file)`
+      onProgress?.(steps[5])
+      result.thumbnailPath = config.outputThumbnailPath
+    } else {
+      logger.info('🎨 Generating thumbnail using Gemini')
+      const thumbnailResult = await generateModernOrientalThumbnail(
+        config.avatarImagePath,
+        config.storyTitle,
+        config.outputThumbnailPath,
+        thumbnailReference
+      )
 
-    steps[5].status = 'completed'
-    steps[5].progress = 100
-    steps[5].message = `Thumbnail generated: ${path.basename(thumbnailResult.path)}`
-    onProgress?.(steps[5])
+      steps[5].status = 'completed'
+      steps[5].progress = 100
+      steps[5].message = `Thumbnail generated: ${path.basename(thumbnailResult.path)}`
+      onProgress?.(steps[5])
 
-    result.thumbnailPath = thumbnailResult.path
-    logger.info(`Thumbnail created: ${thumbnailResult.path}`)
+      result.thumbnailPath = thumbnailResult.path
+      logger.info(`Thumbnail created: ${thumbnailResult.path}`)
+    }
 
     // Step 7: Upload to YouTube (optional)
     if (config.uploadToYoutube) {

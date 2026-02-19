@@ -4,7 +4,7 @@ import './App.css'
 
 function App() {
   useEffect(() => {
-    console.log('Audiobook Uploader App initialized')
+    console.log('🚀 Audiobook Uploader App initialized')
   }, [])
 
   return (

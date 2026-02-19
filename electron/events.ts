@@ -4,6 +4,7 @@ import fs from 'fs'
 import { exec } from 'child_process'
 import { getAppDataPath, initializeDatabase, getProjectHistory, deleteProject as dbDeleteProject, getOutputsByProject } from '../src/utils/database'
 import { executePipeline } from '../src/services/pipeline'
+import { parseEpubFile } from '../src/services/epub'
 import { onLog } from '../src/utils/logger'
 import type { PipelineConfig, AppSettings, PipelineResult } from '../src/types'
 
@@ -28,6 +29,14 @@ export function setupIpcHandlers(window: BrowserWindow) {
   ipcMain.handle('select-folder', async () => {
     const result = await dialog.showOpenDialog(window, {
       properties: ['openDirectory'],
+    })
+    return result.canceled ? null : result.filePaths[0]
+  })
+
+  ipcMain.handle('select-file', async (_event, filters?: Array<{ name: string; extensions: string[] }>) => {
+    const result = await dialog.showOpenDialog(window, {
+      properties: ['openFile'],
+      filters: filters || [{ name: 'All Files', extensions: ['*'] }],
     })
     return result.canceled ? null : result.filePaths[0]
   })
@@ -80,6 +89,25 @@ export function setupIpcHandlers(window: BrowserWindow) {
         }
       })
     })
+  })
+
+  // EPUB operations
+  ipcMain.handle('parse-epub-file', async (_event, filePath: string) => {
+    try {
+      const metadata = await parseEpubFile(filePath)
+      console.log(`✅ EPUB parsed: ${metadata.title} (${metadata.chapters.length} chapters)`)
+      return {
+        success: true,
+        data: metadata,
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      console.error(`❌ Failed to parse EPUB: ${errorMsg}`)
+      return {
+        success: false,
+        error: errorMsg,
+      }
+    }
   })
 
   // Settings

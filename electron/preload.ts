@@ -1,14 +1,19 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
-import type { ElectronAPI, PipelineConfig, PipelineProgress, AppSettings } from '../src/types'
+import type { ElectronAPI, PipelineConfig, PipelineProgress, AppSettings, EpubMetadata } from '../src/types'
 
 // Define the API exposed to the renderer process
 const api: ElectronAPI = {
   // File operations
   selectFolder: () => ipcRenderer.invoke('select-folder'),
+  selectFile: (filters?: Array<{ name: string; extensions: string[] }>) => ipcRenderer.invoke('select-file', filters),
   openFile: (filePath: string) => ipcRenderer.invoke('open-file', filePath),
   openPath: (folderPath: string) => ipcRenderer.invoke('open-path', folderPath),
   getVideoDuration: (filePath: string) => ipcRenderer.invoke('get-video-duration', filePath),
   getNextVideoFolder: () => ipcRenderer.invoke('get-next-video-folder'),
+
+  // EPUB operations
+  parseEpubFile: (filePath: string): Promise<{ success: boolean; data?: EpubMetadata; error?: string }> =>
+    ipcRenderer.invoke('parse-epub-file', filePath),
 
   // Pipeline operations
   startPipeline: (config: PipelineConfig) => ipcRenderer.invoke('start-pipeline', config),
