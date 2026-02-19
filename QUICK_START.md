@@ -1,127 +1,255 @@
-# Quick Start Guide
+# Quick Start Guide - Audiobook Uploader v0.1.0
 
-## 🚀 Start Development (2 Terminals)
-
-### Terminal 1: React Dev Server
-```bash
-npm run dev
-```
-This starts Vite at http://localhost:5173 with hot-reload
-
-### Terminal 2: Electron App
-```bash
-npm run electron:dev
-```
-This launches the desktop app with DevTools open
-
-**That's it!** The app will reload as you make changes.
-
-## 📦 Build for Production
-
-### Build for your platform
-```bash
-npm run build
-```
-
-### Build for specific OS
-```bash
-npm run build:win   # Windows NSIS installer
-npm run build:mac   # macOS DMG package
-```
-
-Output files will be in `./release/`
-
-## 🔍 Verify Setup
-
-```bash
-# Check TypeScript compilation
-npm run type-check
-
-# Should output: "> audiobook-uploader@0.1.0 type-check" with no errors
-```
-
-## 📁 Important Directories
-
-- **Services:** `src/services/` - Video download, TTS, FFmpeg, YouTube
-- **Utilities:** `src/utils/` - Database, FFmpeg setup, Logging
-- **Types:** `src/types/` - All TypeScript interfaces
-- **Electron:** `electron/` - Main process, IPC handlers
-- **Components:** `src/components/` - React UI (to be created)
-
-## 🔑 Environment Setup
-
-1. Create `.env` file:
-   ```bash
-   cp .env.example .env
-   ```
-
-2. Add your API keys:
-   ```
-   VBEE_API_KEY=your_key_here
-   YOUTUBE_API_KEY=your_key_here
-   GEMINI_API_KEY=your_key_here
-   BANANA_API_KEY=your_key_here
-   ```
-
-## 📚 Project Structure
-
-```
-src/
-├── services/        ← API integration layer (all services)
-├── utils/           ← Core utilities (database, logging, FFmpeg)
-├── types/           ← TypeScript interfaces
-├── components/      ← React UI components (next to implement)
-├── pages/           ← Page components (next to implement)
-├── App.tsx          ← Root component
-└── main.tsx         ← Entry point
-
-electron/
-├── main.ts          ← App entry point
-├── preload.ts       ← IPC security bridge
-├── events.ts        ← IPC event handlers
-└── utils.ts         ← Electron utilities
-```
-
-## 🐛 Debugging
-
-### View Console Logs
-DevTools will open automatically. Check Console tab for logs.
-
-### View Database
-Database is stored at: `~/.audiobook-uploader/app.db`
-Logs are at: `~/.audiobook-uploader/logs/`
-
-### View Network Calls
-DevTools Network tab shows all HTTP requests to APIs
-
-## ✅ Working Features
-
-- ✅ Electron app shell
-- ✅ React integration with hot-reload  
-- ✅ SQLite database (sql.js)
-- ✅ Douyin video download module
-- ✅ Vbee TTS service
-- ✅ FFmpeg video composition
-- ✅ YouTube upload API
-- ✅ Gemini thumbnail generation
-- ✅ Logging system
-- ✅ IPC communication
-
-## ⚠️ Next Steps
-
-1. **Create UI Components:** Dashboard, Pipeline, Settings, History
-2. **Implement Pipeline Orchestration:** Wire up services
-3. **Add Progress Tracking:** Real-time updates
-4. **Build Tests:** Unit & integration tests
-5. **Optimize FFmpeg:** Test on different hardware
-
-## 💡 Tips
-
-- Use Vite's hot reload - save files and watch them update instantly
-- Keep DevTools open to debug IPC messages
-- Check logs in `~/.audiobook-uploader/logs/` for detailed debugging
-- Environment variables in `.env` are loaded automatically
+**Status**: ✅ Production Ready | **Last Updated**: February 19, 2026
 
 ---
 
-**Ready to build?** Run `npm run dev` and `npm run electron:dev` in separate terminals!
+## 🚀 Quick Start for Users
+
+### 1. Download & Install
+```bash
+# Go to GitHub Releases
+https://github.com/your-username/audiobook-uploader/releases
+
+# Download:
+# Windows: Audiobook-Uploader-0.1.0-x64.exe
+# macOS: Audiobook-Uploader-0.1.0.dmg
+```
+
+### 2. Configure API Keys
+In app Settings tab, add:
+- VBEE_API_KEY
+- GEMINI_API_KEY
+- YOUTUBE_OAUTH_CLIENT_ID
+- YOUTUBE_OAUTH_CLIENT_SECRET
+
+### 3. Start Creating!
+- Input story text
+- Select cooking video
+- Click "Create Audiobook"
+- Optional: Auto-upload to YouTube
+
+---
+
+## 💻 Quick Start for Developers
+
+### Start Development (Single Command)
+```bash
+npm run dev
+```
+Opens Electron app with hot-reload - make changes and see them instantly!
+
+### Build for Production
+```bash
+# Build for your platform
+npm run build
+
+# Build specific OS
+npm run build:win   # Windows executable
+npm run build:mac   # macOS executable
+```
+
+### Verify Everything Works
+```bash
+npm run type-check   # Must pass with 0 errors
+npm run build:electron  # Compile Electron main
+npm run build:renderer  # Bundle React UI
+```
+
+---
+
+## 📁 Key Files & Directories
+
+### Frontend (React)
+- `src/components/Dashboard.tsx` - Main UI with YouTube integration
+- `src/components/` - All UI components
+- `src/types/index.ts` - All TypeScript interfaces
+
+### Backend (Electron)
+- `electron/events.ts` - **Most Important**: IPC handlers orchestrate services
+- `electron/preload.ts` - Exposes API to React
+- `electron/main.ts` - App initialization
+
+### Services
+- `src/services/pipeline.ts` - Orchestrates: video → thumbnail → YouTube
+- `src/services/ffmpeg.ts` - Video composition
+- `src/services/gemini.ts` - Thumbnail generation
+- `src/services/youtube.ts` - YouTube upload
+- `src/services/youtube-auth.ts` - OAuth 2.0
+
+### Utilities
+- `src/utils/youtube-oauth.ts` - OAuth helpers
+- `src/utils/logger.ts` - Logging system
+- `src/utils/database.ts` - SQLite operations
+
+---
+
+## 🔧 Environment Setup
+
+### 1. Create .env file
+```bash
+cp .env.example .env
+```
+
+### 2. Add your API keys
+```bash
+# .env
+VBEE_API_KEY=your_key
+GEMINI_API_KEY=your_key
+YOUTUBE_OAUTH_CLIENT_ID=your_id
+YOUTUBE_OAUTH_CLIENT_SECRET=your_secret
+```
+
+### 3. Install FFmpeg
+```bash
+# Windows
+choco install ffmpeg
+
+# macOS
+brew install ffmpeg
+```
+
+---
+
+## 🎯 Common Development Tasks
+
+### Add a New Feature
+1. Create service in `src/services/*.ts`
+2. Add IPC handler in `electron/events.ts`
+3. Expose in `electron/preload.ts`
+4. Call from React via `window.api.featureName()`
+5. Run `npm run type-check` (must pass!)
+
+### Debug the App
+```bash
+# React UI (Browser Console)
+Ctrl+Shift+I
+
+# Electron Main Process (Electron Console)
+Ctrl+Shift+I → Main Process toggle
+
+# View App Logs
+~/.audiobook-uploader/logs/
+```
+
+### Build Executables
+```bash
+# Windows
+.\scripts\build-win.bat
+
+# macOS
+./scripts/build-mac.sh
+
+# Output: dist/release/*.exe or *.dmg
+```
+
+---
+
+## 📊 Project Structure
+
+```
+audiobook-uploader/
+├── src/
+│   ├── components/      # React UI
+│   ├── services/        # FFmpeg, Gemini, YouTube, OAuth
+│   ├── types/           # TypeScript interfaces
+│   └── utils/           # Helpers (logger, database, etc)
+├── electron/
+│   ├── main.ts          # App entry
+│   ├── events.ts        # IPC handlers (main logic)
+│   └── preload.ts       # Security bridge
+├── .github/workflows/
+│   └── build-release.yml  # GitHub Actions CI/CD
+├── scripts/
+│   ├── build-win.bat    # Windows build script
+│   └── build-mac.sh     # macOS build script
+├── dist/
+│   ├── electron/        # Compiled main process
+│   ├── renderer/        # Bundled React UI
+│   └── release/         # Final executables
+└── [Documentation files below]
+```
+
+---
+
+## 📚 Full Documentation
+
+| Document | Purpose |
+|----------|---------|
+| **DEPLOYMENT.md** | How to install and use (for end users) |
+| **BUILD_GUIDE.md** | Build configuration and troubleshooting |
+| **PROJECT_STATUS.md** | Complete project status report |
+| **RELEASE_NOTES.md** | Features in v0.1.0 |
+| **CLAUDE.md** | Developer guidelines |
+
+---
+
+## ✅ What's Working
+
+- ✅ Video composition with FFmpeg
+- ✅ Thumbnail generation via Gemini API
+- ✅ YouTube OAuth 2.0 authentication
+- ✅ Secure token storage (keytar)
+- ✅ Project history
+- ✅ Settings persistence
+- ✅ Error handling
+- ✅ Type-safe IPC
+- ✅ GitHub Actions CI/CD
+- ✅ Cross-platform builds
+
+---
+
+## 🚀 Deploy to Production
+
+### Option 1: GitHub Actions (Automatic)
+```bash
+git tag -a v0.1.0 -m "Release v0.1.0"
+git push origin v0.1.0
+# GitHub Actions automatically builds Windows + macOS executables!
+```
+
+### Option 2: Build Yourself
+```bash
+# Windows
+.\scripts\build-win.bat
+# Output: dist\release\*.exe
+
+# macOS
+./scripts/build-mac.sh
+# Output: dist/release/*.dmg
+```
+
+---
+
+## 🆘 Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| `npm run type-check` fails | Check error file, fix TypeScript, run again |
+| FFmpeg not found | `choco install ffmpeg` (Windows) or `brew install ffmpeg` (macOS) |
+| App won't start | Check Node.js 18+, FFmpeg installed, .env configured |
+| YouTube auth fails | Check Client ID/Secret, internet connection, API quota |
+| Build fails | Run `npm install`, `npm run type-check`, then try again |
+
+---
+
+## 💡 Pro Tips
+
+1. **Hot Reload**: `npm run dev` automatically reloads when you save
+2. **Type Safety**: Run `npm run type-check` before committing
+3. **Debugging**: Use `window.api.methodName()` in browser console to test IPC
+4. **Logs**: Check `~/.audiobook-uploader/logs/` for detailed execution logs
+5. **Release**: Create a git tag to trigger GitHub Actions automated builds
+
+---
+
+## 📞 Resources
+
+- **GitHub**: https://github.com/your-username/audiobook-uploader
+- **Issues**: Create issues for bugs and features
+- **Discussions**: Share ideas and get help
+- **Email**: your-email@example.com
+
+---
+
+**Version**: 0.1.0 | **Status**: ✅ Production Ready | **Last Build**: Feb 19, 2026
