@@ -1,0 +1,318 @@
+.chapter-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.5rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #dee2e6;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.chapter-selector-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chapter-selector-header h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: #333;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #666;
+  transition: color 0.2s;
+}
+
+.close-btn:hover {
+  color: #000;
+}
+
+.chapter-selector-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.book-info {
+  padding: 1rem;
+  background: white;
+  border-radius: 4px;
+  border-left: 4px solid #007bff;
+}
+
+.book-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.book-title strong {
+  font-size: 1.1rem;
+  color: #333;
+}
+
+.book-author {
+  font-size: 0.9rem;
+  color: #666;
+  font-style: italic;
+}
+
+.book-stats {
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.chapter-controls {
+  display: flex;
+  gap: 0.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.btn-control {
+  padding: 0.5rem 1rem;
+  background: white;
+  color: #007bff;
+  border: 1px solid #007bff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+}
+
+.btn-control:hover {
+  background: #e7f3ff;
+}
+
+.chapters-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow-y: auto;
+  flex: 1;
+  padding-right: 0.5rem;
+}
+
+.chapters-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chapters-list::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.chapters-list::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+.chapters-list::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+.chapter-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.chapter-item:hover {
+  background: #f0f0f0;
+  border-color: #007bff;
+}
+
+.chapter-item.selected {
+  background: #e7f3ff;
+  border-color: #007bff;
+}
+
+.chapter-checkbox {
+  margin-top: 0.2rem;
+  cursor: pointer;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.chapter-details {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.chapter-number-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.chapter-number-title strong {
+  color: #333;
+  min-width: 80px;
+}
+
+.chapter-title {
+  color: #666;
+  font-size: 0.95rem;
+}
+
+.chapter-info {
+  display: flex;
+  justify-content: space-between;
+  color: #999;
+  font-size: 0.85rem;
+}
+
+.selection-summary {
+  padding: 1rem;
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.summary-stat {
+  font-size: 0.95rem;
+  color: #333;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.summary-stat strong {
+  color: #666;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+}
+
+.estimated-duration {
+  grid-column: 1 / -1;
+  padding-top: 0.75rem;
+  border-top: 1px solid #dee2e6;
+  font-size: 1.05rem;
+  color: #28a745;
+}
+
+.estimated-duration strong {
+  color: #28a745;
+  font-size: 0.95rem;
+}
+
+.chapter-selector-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #dee2e6;
+}
+
+.btn-secondary {
+  padding: 0.625rem 1rem;
+  background: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: background 0.2s;
+}
+
+.btn-secondary:hover {
+  background: #5a6268;
+}
+
+.btn-primary {
+  padding: 0.625rem 1.25rem;
+  background: #28a745;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: background 0.2s;
+  flex: 1;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #218838;
+}
+
+.btn-primary:disabled {
+  background: #6c757d;
+  cursor: not-allowed;
+}
+
+/* Chapter Renumbering Section */
+.chapter-renumbering {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+}
+
+.chapter-renumbering label {
+  font-weight: 600;
+  color: #333;
+  font-size: 0.95rem;
+}
+
+.renumbering-input {
+  width: 80px;
+  padding: 0.5rem;
+  border: 1px solid #ffc107;
+  border-radius: 4px;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.renumbering-input:focus {
+  outline: none;
+  border-color: #ff9800;
+  box-shadow: 0 0 0 2px rgba(255, 152, 0, 0.1);
+}
+
+.renumbering-help {
+  color: #666;
+  font-size: 0.85rem;
+  margin-top: 0.25rem;
+}
+
+.chapter-renumber-preview {
+  color: #ff9800;
+  font-weight: 600;
+  margin-left: 0.25rem;
+}

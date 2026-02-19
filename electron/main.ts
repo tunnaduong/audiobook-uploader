@@ -33,13 +33,22 @@ async function createWindow() {
     const devServerUrl = 'http://localhost:5173'
     console.log(`📱 Loading dev server: ${devServerUrl}`)
 
+    mainWindow.webContents.openDevTools()
+
     mainWindow.loadURL(devServerUrl).catch((error) => {
       console.error(`❌ Failed to load dev server at ${devServerUrl}`)
       console.error(`Error: ${error.message}`)
       console.error('Make sure Vite dev server is running in Terminal 1: npm run dev')
     })
 
-    mainWindow.webContents.openDevTools()
+    // Listen for renderer crashes
+    mainWindow.webContents.on('crashed', () => {
+      console.error('❌ Renderer process crashed!')
+    })
+
+    mainWindow.webContents.on('unresponsive', () => {
+      console.error('⚠️ Renderer process unresponsive!')
+    })
   } else {
     // In production, load from bundled files
     const rendererDist = path.join(__dirname, '../renderer')

@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
+import type { EpubMetadata } from '../types'
+import { EpubImporter } from './EpubImporter'
+import { ChapterSelector } from './ChapterSelector'
 import './Dashboard.css'
 
 // Helper function to extract and format chapter information from story text
@@ -122,6 +125,14 @@ interface HomeTabState {
   storyText: string
   douyinUrl: string
   selectedVoice: string
+  // EPUB import state
+  epubFilePath?: string
+  epubMetadata?: EpubMetadata
+  epubTitle?: string
+  selectedChapters?: Set<number>
+  useEpubInput: boolean
+  // Reuse options
+  reuseExistingThumbnail: boolean
 }
 
 interface SettingsTabState {
@@ -129,6 +140,8 @@ interface SettingsTabState {
   appId: string
   youtubeKey: string
   outputDir: string
+  // Intro settings
+  introTemplate: string
 }
 
 export function Dashboard() {
@@ -139,6 +152,12 @@ export function Dashboard() {
     storyText: '',
     douyinUrl: '',
     selectedVoice: 'n_hanoi_female_nguyetnga2_book_vc',
+    epubFilePath: undefined,
+    epubMetadata: undefined,
+    epubTitle: undefined,
+    selectedChapters: undefined,
+    useEpubInput: false,
+    reuseExistingThumbnail: true,
   })
 
   const [settingsTabState, setSettingsTabState] = useState<SettingsTabState>({
@@ -146,6 +165,7 @@ export function Dashboard() {
     appId: '',
     youtubeKey: '',
     outputDir: './output',
+    introTemplate: 'Truyện tiểu thuyết: {bookTitle} (chương {chapters})\nĐăng tải bởi đội ngũ Thính Phong Tiểu Thuyết Audio',
   })
 
   const [envConfig, setEnvConfig] = useState<EnvConfig>({})
@@ -251,6 +271,8 @@ function HomeTab({
 }) {
   const [isProcessing, setIsProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
+  const [showEpubImporter, setShowEpubImporter] = useState(false)
+  const [showChapterSelector, setShowChapterSelector] = useState(false)
   const logsContainerRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll logs to bottom when new logs are added
@@ -280,6 +302,48 @@ function HomeTab({
     setPersistedLogs((prev: string[]) => [...prev, `[${new Date().toLocaleTimeString()}] ${message}`])
   }
 
+  const handleEpubLoaded = (metadata: EpubMetadata) => {
+    setState({
+      ...state,
+      epubFilePath: metadata.title,
+      epubMetadata: metadata,
+      epubTitle: metadata.title,
+      useEpubInput: true,
+    })
+    setShowEpubImporter(false)
+    setShowChapterSelector(true)
+  }
+
+  const handleChaptersSelected = (selectedChapters: number[], renumbering?: { [originalNumber: number]: number }) => {
+    // Aggregate selected chapters into story text
+    if (state.epubMetadata) {
+      const selected = state.epubMetadata.chapters
+        .filter(ch => selectedChapters.includes(ch.number))
+        .sort((a, b) => a.number - b.number)
+
+      const aggregatedText = selected
+        .map(ch => {
+          const newChapterNum = renumbering?.[ch.number] ?? ch.number
+          return `Chương ${newChapterNum}: ${ch.title}\n\n${ch.content}`
+        })
+        .join('\n\n---\n\n')
+
+      setState({
+        ...state,
+        storyText: aggregatedText,
+        selectedChapters: new Set(selectedChapters),
+      })
+      setShowChapterSelector(false)
+      addLog(`📚 Đã chọn ${selectedChapters.length} chương từ EPUB`)
+      if (renumbering && Object.keys(renumbering).length > 0) {
+        const firstChapter = Object.values(renumbering)[0]
+        if (firstChapter !== 1) {
+          addLog(`🔢 Chương được đánh số lại từ: ${firstChapter}`)
+        }
+      }
+    }
+  }
+
   const handleCreateAudiobook = async () => {
     if (!state.storyText.trim()) {
       alert('Vui lòng nhập nội dung truyện')
@@ -293,12 +357,25 @@ function HomeTab({
     try {
       addLog('Bắt đầu quy trình tạo audiobook...')
 
-      // Extract chapter information from story text
-      const chapterInfo = extractChapterInfo(state.storyText)
-      const projectName = chapterInfo.displayTitle || 'Untitled'
-      console.log(`📚 Story Info:`, chapterInfo)
-      addLog(`📚 Tiêu đề: ${projectName}`)
-      if (chapterInfo.chapterNumbers.length > 0) {
+      // Determine project name: use EPUB title if available, otherwise extract from story text
+      let projectName = 'Untitled'
+      let chapterInfo: ReturnType<typeof extractChapterInfo> | null = null
+
+      if (state.useEpubInput && state.epubTitle) {
+        // EPUB input: use EPUB title directly
+        projectName = state.epubTitle
+        addLog(`📚 Tiêu đề EPUB: ${projectName}`)
+        // Still extract chapter numbers from story text for logging
+        chapterInfo = extractChapterInfo(state.storyText)
+      } else {
+        // Manual input: extract chapter info from story text
+        chapterInfo = extractChapterInfo(state.storyText)
+        projectName = chapterInfo.displayTitle || 'Untitled'
+        console.log(`📚 Story Info:`, chapterInfo)
+        addLog(`📚 Tiêu đề: ${projectName}`)
+      }
+
+      if (chapterInfo && chapterInfo.chapterNumbers.length > 0) {
         addLog(`📖 Chương: ${chapterInfo.chapterNumbers.join(', ')}`)
       }
 
@@ -306,6 +383,24 @@ function HomeTab({
       const { folderPath } = await window.api?.getNextVideoFolder?.() || { folderPath: 'C:\\dev\\audiobook-uploader\\output\\vid_1' }
       console.log(`📁 Output folder: ${folderPath}`)
       addLog(`📁 Sử dụng thư mục: ${folderPath}`)
+
+      // Default intro template
+      const defaultIntroTemplate = 'Truyện tiểu thuyết: {bookTitle} (chương {chapters})\nĐăng tải bởi đội ngũ Thính Phong Tiểu Thuyết Audio'
+
+      // Generate intro text from template
+      let introText = ''
+      const chaptersText = chapterInfo && chapterInfo.chapterNumbers.length > 0
+        ? chapterInfo.chapterNumbers.slice(0, -1).join(', ') +
+          (chapterInfo.chapterNumbers.length > 1 ? ' và ' : '') +
+          chapterInfo.chapterNumbers[chapterInfo.chapterNumbers.length - 1]
+        : ''
+
+      introText = defaultIntroTemplate
+        .replace('{bookTitle}', projectName)
+        .replace('{chapters}', chaptersText)
+
+      // Prepend intro to story text
+      const finalStoryText = `${introText}\n\n${state.storyText}`
 
       // Listen for progress updates from Electron main process
       const unsubscribe = window.api?.onPipelineProgress?.((step) => {
@@ -317,7 +412,7 @@ function HomeTab({
       console.log('📱 UI: Sending pipeline config to IPC handler')
       const result = await window.api?.startPipeline?.({
         // Story content
-        storyText: state.storyText,
+        storyText: finalStoryText,
         storyTitle: projectName,
 
         // Input files from C:\dev\audiobook-uploader\input\
@@ -331,11 +426,15 @@ function HomeTab({
         outputVideoPath: `${folderPath}\\final_video.mp4`,
         outputThumbnailPath: `${folderPath}\\thumbnail.jpg`,
 
+        // Voice settings
+        voiceId: state.selectedVoice,
+
         // Settings
         videoDuration: 60,
         uploadToYoutube: false, // Disabled for now (requires YouTube auth)
         douyinUrl: state.douyinUrl || undefined, // Pass Douyin URL if provided
         resumeOnExist: true, // Skip steps if files already exist
+        reuseExistingThumbnail: state.reuseExistingThumbnail, // Reuse existing thumbnail if checked
       })
 
       console.log('📱 UI: Received result from IPC handler:', result)
@@ -359,6 +458,12 @@ function HomeTab({
           storyText: '',
           douyinUrl: '',
           selectedVoice: 'n_hanoi_female_nguyetnga2_book_vc',
+          epubFilePath: undefined,
+          epubMetadata: undefined,
+          epubTitle: undefined,
+          selectedChapters: undefined,
+          useEpubInput: false,
+          reuseExistingThumbnail: true,
         })
       } else {
         console.log('❌ UI: Pipeline failed with error:', result?.error)
@@ -391,17 +496,123 @@ function HomeTab({
 
   return (
     <div className="home-tab">
-      <div className="form-section">
-        <h2>Nội Dung Truyện</h2>
-        <textarea
-          className="story-input"
-          value={state.storyText}
-          onChange={(e) => setState({ ...state, storyText: e.target.value })}
-          placeholder="Nhập nội dung truyện tại đây... (Có thể dán từ file hoặc trang web)"
+      {/* EPUB Importer Modal */}
+      {showEpubImporter && (
+        <div className="epub-modal-overlay">
+          <div className="epub-modal">
+            <EpubImporter
+              onEpubLoaded={handleEpubLoaded}
+              onClose={() => setShowEpubImporter(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Chapter Selector Modal */}
+      {showChapterSelector && state.epubMetadata && (
+        <div className="epub-modal-overlay">
+          <div className="epub-modal">
+            <ChapterSelector
+              metadata={state.epubMetadata}
+              onConfirm={handleChaptersSelected}
+              onClose={() => setShowChapterSelector(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* EPUB/Manual Input Toggle */}
+      <div className="input-mode-selector">
+        <button
+          className={`mode-button ${!state.useEpubInput ? 'active' : ''}`}
+          onClick={() => setState({ ...state, useEpubInput: false })}
           disabled={isProcessing}
-        />
-        <div className="form-info">{state.storyText.length} ký tự</div>
+        >
+          ✏️ Nhập Thủ Công
+        </button>
+        <button
+          className={`mode-button ${state.useEpubInput ? 'active' : ''}`}
+          onClick={() => setState({ ...state, useEpubInput: true })}
+          disabled={isProcessing}
+        >
+          📖 Nhập từ EPUB
+        </button>
       </div>
+
+      {/* Manual Input Section */}
+      {!state.useEpubInput && (
+        <div className="form-section">
+          <h2>Nội Dung Truyện</h2>
+          <textarea
+            className="story-input"
+            value={state.storyText}
+            onChange={(e) => setState({ ...state, storyText: e.target.value })}
+            placeholder="Nhập nội dung truyện tại đây... (Có thể dán từ file hoặc trang web)"
+            disabled={isProcessing}
+          />
+          <div className="form-info">{state.storyText.length} ký tự</div>
+        </div>
+      )}
+
+      {/* EPUB Input Section */}
+      {state.useEpubInput && (
+        <div className="form-section">
+          <h2>Tệp EPUB</h2>
+          {!state.epubMetadata ? (
+            <div className="epub-input-container">
+              <button
+                className="btn-select-epub"
+                onClick={() => setShowEpubImporter(true)}
+                disabled={isProcessing}
+              >
+                📖 Chọn Tệp EPUB
+              </button>
+              <p className="epub-help-text">Nhấp để chọn tệp EPUB từ máy tính của bạn</p>
+            </div>
+          ) : (
+            <div className="epub-loaded-container">
+              <div className="epub-file-info">
+                <strong>Tệp đã tải:</strong> {state.epubMetadata.title}
+                {state.epubMetadata.author && <div className="epub-author">Tác giả: {state.epubMetadata.author}</div>}
+                <div className="epub-chapters">Tổng số chương: {state.epubMetadata.chapters.length}</div>
+              </div>
+              {state.selectedChapters && state.selectedChapters.size > 0 ? (
+                <div className="epub-selection-info">
+                  <strong>Chương đã chọn:</strong> {Array.from(state.selectedChapters).sort((a, b) => a - b).join(', ')}
+                  <div className="selected-count">({state.selectedChapters.size} chương)</div>
+                </div>
+              ) : (
+                <p className="epub-no-selection">Chưa chọn chương nào</p>
+              )}
+              <div className="epub-action-buttons">
+                <button
+                  className="btn-secondary"
+                  onClick={() => setShowChapterSelector(true)}
+                  disabled={isProcessing}
+                >
+                  📋 Chọn Chương
+                </button>
+                <button
+                  className="btn-secondary"
+                  onClick={() => {
+                    setState({
+                      ...state,
+                      epubFilePath: undefined,
+                      epubMetadata: undefined,
+                      epubTitle: undefined,
+                      selectedChapters: undefined,
+                      storyText: '',
+                    })
+                  }}
+                  disabled={isProcessing}
+                >
+                  🔄 Tải EPUB Khác
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="form-row">
         <div className="form-group">
@@ -432,6 +643,9 @@ function HomeTab({
             <option value="n_hanoi_female_nguyetnga2_book_vc">
               🎙️ Nguyệt Nga (Nữ - Audiobook) ⭐
             </option>
+            <option value="n_hanam_male_tunna_zero_shot_story_vc">
+              🎙️ Tunna (Nam)
+            </option>
             <option value="hn_female_ngochuyen_full_48k-fhg">
               🎙️ Ngọc Huyền (Nữ)
             </option>
@@ -439,6 +653,23 @@ function HomeTab({
               🎙️ Anh (Nam)
             </option>
           </select>
+        </div>
+      </div>
+
+      {/* Reuse Options */}
+      <div className="form-section">
+        <h3>⚙️ Tùy Chọn Tạo Video</h3>
+        <div className="checkbox-group">
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={state.reuseExistingThumbnail}
+              onChange={(e) => setState({ ...state, reuseExistingThumbnail: e.target.checked })}
+              disabled={isProcessing}
+            />
+            <span>🖼️ Tái sử dụng ảnh AI đã tạo (bỏ qua Gemini)</span>
+          </label>
+          <small className="checkbox-help">Nếu chọn, sẽ dùng thumbnail.jpg có sẵn, không tạo ảnh mới</small>
         </div>
       </div>
 
@@ -565,6 +796,31 @@ function SettingsTab({
             onChange={(e) => setState({ ...state, outputDir: e.target.value })}
             placeholder="Đường dẫn thư mục output"
           />
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <h3>📝 Intro Voiceover</h3>
+        <div className="form-group">
+          <label>Template Intro:</label>
+          <textarea
+            className="form-input intro-textarea"
+            value={state.introTemplate}
+            onChange={(e) => setState({ ...state, introTemplate: e.target.value })}
+            placeholder="Intro template..."
+            rows={4}
+          />
+          <div className="form-info">
+            <strong>Biến có sẵn:</strong>
+            <br />• {'{bookTitle}'} - Tên truyện
+            <br />• {'{chapters}'} - Danh sách chương (vd: Chương 1, 2 và 3)
+            <br />
+            <br />
+            <strong>Ví dụ:</strong>
+            <br />
+            Truyện tiểu thuyết: {'{bookTitle}'} (chương {'{chapters}'})<br />
+            Đăng tải bởi đội ngũ Thính Phong Tiểu Thuyết Audio
+          </div>
         </div>
       </div>
 

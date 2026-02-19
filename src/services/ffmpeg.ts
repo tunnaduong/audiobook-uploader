@@ -435,15 +435,16 @@ export async function mixVoiceoverWithMusic(
   outputPath: string
 ): Promise<void> {
   try {
-    logger.info(`🎵 Mixing voiceover (100%) with background music (50%)`)
+    logger.info(`🎵 Mixing voiceover (100%) with background music (50% looped)`)
 
     const ffmpegPath = await getFFmpegPath()
 
     // FFmpeg filter:
     // [0:a] = voiceover at 100% (volume=1.0)
-    // [1:a] = background music at 50% (volume=0.5)
-    // amix=inputs=2:duration=first = mix both, use first input's duration
-    const audioFilter = `[0:a]volume=1.0[v0];[1:a]volume=0.5[v1];[v0][v1]amix=inputs=2:duration=first[a_out]`
+    // [1:a] = background music at 50% (volume=0.5), looped to match voiceover duration
+    // aloop = loop background music to match voiceover duration
+    // amix=inputs=2:duration=first = mix both, use voiceover's duration
+    const audioFilter = `[0:a]volume=1.0[v0];[1:a]aloop=loop=-1:size=20480[looped];[looped]volume=0.5[v1];[v0][v1]amix=inputs=2:duration=first[a_out]`
 
     const command = [
       `"${ffmpegPath}"`,
