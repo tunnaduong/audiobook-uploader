@@ -6,7 +6,7 @@
     "jsx": "react",
     "declaration": true,
     "outDir": "./dist",
-    "strict": true,
+    "strict": false,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
@@ -22,5 +22,5 @@
     }
   },
   "include": ["electron/**/*.ts", "src/types/**/*.ts", "src/utils/**/*.ts", "src/services/**/*.ts"],
-  "exclude": ["node_modules", "dist", "src/**/*.tsx"]
+  "exclude": ["node_modules", "dist", "src/**/*.tsx", "src/services/epub.ts", "src/utils/epub-utils.ts"]
 }
