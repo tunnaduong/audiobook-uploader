@@ -5,14 +5,20 @@ import './ChapterSelector.css'
 
 interface ChapterSelectorProps {
   metadata: EpubMetadata
-  onConfirm: (selectedChapters: number[]) => void
+  onConfirm: (selectedChapters: number[], renumbering?: { [originalNumber: number]: number }) => void
   onClose: () => void
+}
+
+interface ChapterRenumbering {
+  [originalNumber: number]: number
 }
 
 export function ChapterSelector({ metadata, onConfirm, onClose }: ChapterSelectorProps) {
   const [selectedChapters, setSelectedChapters] = useState<Set<number>>(
     new Set(metadata.chapters.map(ch => ch.number))
   )
+  const [startChapterNumber, setStartChapterNumber] = useState<number>(1)
+  const [chapterRenumbering, setChapterRenumbering] = useState<ChapterRenumbering>({})
 
   // Calculate total word count and characters for selected chapters
   const stats = useMemo(() => {
@@ -59,13 +65,24 @@ export function ChapterSelector({ metadata, onConfirm, onClose }: ChapterSelecto
     setSelectedChapters(new Set())
   }
 
+  const handleStartChapterChange = (newStart: number) => {
+    setStartChapterNumber(newStart)
+    // Auto-generate renumbering
+    const selected = Array.from(selectedChapters).sort((a, b) => a - b)
+    const mapping: ChapterRenumbering = {}
+    selected.forEach((originalNum, index) => {
+      mapping[originalNum] = newStart + index
+    })
+    setChapterRenumbering(mapping)
+  }
+
   const handleConfirm = () => {
     if (selectedChapters.size === 0) {
       alert('Vui lòng chọn ít nhất một chương')
       return
     }
     const chapterArray = Array.from(selectedChapters).sort((a, b) => a - b)
-    onConfirm(chapterArray)
+    onConfirm(chapterArray, chapterRenumbering)
   }
 
   return (
@@ -99,6 +116,24 @@ export function ChapterSelector({ metadata, onConfirm, onClose }: ChapterSelecto
           </button>
         </div>
 
+        {/* Chapter Renumbering */}
+        {selectedChapters.size > 0 && (
+          <div className="chapter-renumbering">
+            <label>📝 Bắt đầu từ chương số:</label>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              value={startChapterNumber}
+              onChange={(e) => handleStartChapterChange(Math.max(0, parseInt(e.target.value) || 0))}
+              className="renumbering-input"
+            />
+            <small className="renumbering-help">
+              (Chương được chọn sẽ được đánh số lại từ {startChapterNumber})
+            </small>
+          </div>
+        )}
+
         {/* Chapters List */}
         <div className="chapters-list">
           {metadata.chapters.map((chapter) => (
@@ -118,7 +153,12 @@ export function ChapterSelector({ metadata, onConfirm, onClose }: ChapterSelecto
               />
               <div className="chapter-details">
                 <div className="chapter-number-title">
-                  <strong>Chương {chapter.number}</strong>
+                  <strong>
+                    Chương {chapter.number}
+                    {selectedChapters.has(chapter.number) && chapterRenumbering[chapter.number] !== chapter.number && (
+                      <span className="chapter-renumber-preview"> → {chapterRenumbering[chapter.number]}</span>
+                    )}
+                  </strong>
                   <span className="chapter-title">{chapter.title}</span>
                 </div>
                 <div className="chapter-info">

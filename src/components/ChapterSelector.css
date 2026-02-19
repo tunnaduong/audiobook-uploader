@@ -271,3 +271,48 @@
   background: #6c757d;
   cursor: not-allowed;
 }
+
+/* Chapter Renumbering Section */
+.chapter-renumbering {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+}
+
+.chapter-renumbering label {
+  font-weight: 600;
+  color: #333;
+  font-size: 0.95rem;
+}
+
+.renumbering-input {
+  width: 80px;
+  padding: 0.5rem;
+  border: 1px solid #ffc107;
+  border-radius: 4px;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.renumbering-input:focus {
+  outline: none;
+  border-color: #ff9800;
+  box-shadow: 0 0 0 2px rgba(255, 152, 0, 0.1);
+}
+
+.renumbering-help {
+  color: #666;
+  font-size: 0.85rem;
+  margin-top: 0.25rem;
+}
+
+.chapter-renumber-preview {
+  color: #ff9800;
+  font-weight: 600;
+  margin-left: 0.25rem;
+}

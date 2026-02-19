@@ -102,12 +102,16 @@ export interface PipelineConfig {
   outputVideoPath: string
   outputThumbnailPath: string
 
+  // Voice settings
+  voiceId?: string                // TTS voice ID for audio generation (default: n_hanoi_female_nguyetnga2_book_vc)
+
   // Optional settings
   videoDuration?: number          // Duration in seconds (default 60)
   uploadToYoutube?: boolean       // Whether to upload after generation
   youtubeAccessToken?: string     // OAuth token for YouTube
   douyinUrl?: string              // Optional: Douyin video URL to download
   resumeOnExist?: boolean         // Skip steps if intermediate files exist (mixed_audio, voiceover, final_video)
+  reuseExistingThumbnail?: boolean // Reuse existing thumbnail.jpg if available (skip Gemini generation)
 }
 
 // Pipeline progress event

@@ -155,6 +155,12 @@
   font-family: 'Courier New', monospace;
 }
 
+.intro-textarea {
+  height: 120px;
+  resize: vertical;
+  font-family: 'Courier New', monospace;
+}
+
 .form-info {
   font-size: 12px;
   color: #999;
@@ -166,6 +172,50 @@
   grid-template-columns: 1fr 1fr;
   gap: 15px;
   margin-bottom: 15px;
+}
+
+/* Checkbox Group */
+.checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background-color: #f9f9f9;
+  border: 1px solid #d0d0d0;
+  border-radius: 2px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: #333;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.checkbox-label input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.checkbox-label span {
+  font-weight: 500;
+}
+
+.checkbox-help {
+  font-size: 12px;
+  color: #666;
+  padding-left: 26px;
+  margin-top: -4px;
 }
 
 /* Buttons */
