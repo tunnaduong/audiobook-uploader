@@ -362,4 +362,92 @@ export function setupIpcHandlers(window: BrowserWindow) {
     console.log(`📁 Using folder: ${folderToUse}`)
     return { folderPath: folderToUse, videoNum }
   })
+
+  // YouTube OAuth handlers
+  ipcMain.handle('youtube-login', async () => {
+    try {
+      const { getOAuthConfig } = await import('../src/utils/youtube-oauth')
+      const { initializeYouTubeOAuthHandler } = await import('./youtube-oauth-handler')
+
+      const oauthConfig = getOAuthConfig()
+      const handler = initializeYouTubeOAuthHandler(oauthConfig)
+
+      await handler.initiateLogin()
+
+      // Fetch channel info
+      let channelTitle = 'YouTube Channel'
+      try {
+        // TODO: Fetch actual channel info using YouTube API
+      } catch (e) {
+        console.warn('Could not fetch channel info:', e)
+      }
+
+      console.log('✅ YouTube login successful')
+      return {
+        success: true,
+        channelTitle,
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      console.error('❌ YouTube login failed:', errorMessage)
+      return {
+        success: false,
+        error: errorMessage,
+      }
+    }
+  })
+
+  ipcMain.handle('youtube-logout', async () => {
+    try {
+      const { deleteYouTubeTokens } = await import('../src/services/youtube-auth')
+      await deleteYouTubeTokens()
+      console.log('✅ YouTube logout successful')
+      return { success: true }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      console.error('❌ YouTube logout failed:', errorMessage)
+      return {
+        success: false,
+        error: errorMessage,
+      }
+    }
+  })
+
+  ipcMain.handle('get-youtube-settings', async () => {
+    try {
+      const { hasValidYouTubeTokens } = await import('../src/services/youtube-auth')
+      const isAuthenticated = await hasValidYouTubeTokens()
+
+      return {
+        isAuthenticated,
+        channelTitle: isAuthenticated ? 'YouTube Channel' : undefined,
+        uploadByDefault: false,
+        videoVisibility: 'public' as const,
+        defaultCategory: 24, // Entertainment
+      }
+    } catch (error) {
+      console.error('Failed to get YouTube settings:', error)
+      return {
+        isAuthenticated: false,
+        uploadByDefault: false,
+        videoVisibility: 'public' as const,
+        defaultCategory: 24,
+      }
+    }
+  })
+
+  ipcMain.handle('update-youtube-settings', async (_event, settings) => {
+    try {
+      // TODO: Save settings to persistent storage
+      console.log('Updating YouTube settings:', settings)
+      return { success: true }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      console.error('Failed to update YouTube settings:', errorMessage)
+      return {
+        success: false,
+        error: errorMessage,
+      }
+    }
+  })
 }

@@ -39,7 +39,8 @@ export async function setAuthToken(accessToken: string): Promise<void> {
 export async function uploadVideo(
   filePath: string,
   metadata: VideoMetadata,
-  accessToken: string
+  accessToken: string,
+  thumbnailPath?: string
 ): Promise<YouTubeUploadResult> {
   if (!accessToken) {
     throw new Error('YouTube access token required')
@@ -49,6 +50,7 @@ export async function uploadVideo(
     logger.info(`Uploading video: ${metadata.title}`)
 
     const client = initializeClient(accessToken)
+    const fs = require('fs')
 
     // Create video metadata
     const videoMetadata = {
@@ -71,7 +73,7 @@ export async function uploadVideo(
       headers: {
         'X-Goog-Upload-Protocol': 'resumable',
         'X-Goog-Upload-Command': 'start',
-        'X-Goog-Upload-Header-Content-Length': (require('fs').statSync(filePath).size).toString(),
+        'X-Goog-Upload-Header-Content-Length': (fs.statSync(filePath).size).toString(),
         'Content-Type': 'application/json',
       },
     })
@@ -98,6 +100,28 @@ export async function uploadVideo(
     const videoId = uploadResponse.data.id
 
     logger.info(`Video uploaded successfully: ${videoId}`)
+
+    // Upload thumbnail if provided
+    if (thumbnailPath && fs.existsSync(thumbnailPath)) {
+      try {
+        logger.info(`Uploading thumbnail: ${thumbnailPath}`)
+        const thumbnailStream = createReadStream(thumbnailPath)
+
+        await client.post(`/thumbnails/set?videoId=${videoId}`, thumbnailStream, {
+          headers: {
+            'Content-Type': 'image/jpeg',
+          },
+          timeout: 300000,
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
+        })
+
+        logger.info(`✅ Thumbnail uploaded successfully`)
+      } catch (thumbnailError) {
+        logger.warn(`⚠️ Failed to upload thumbnail: ${thumbnailError}`)
+        // Don't fail the whole upload if thumbnail fails
+      }
+    }
 
     return {
       videoId,

@@ -68,6 +68,24 @@ export interface ThumbnailImage {
   generatedAt: Date
 }
 
+// YouTube OAuth tokens
+export interface YouTubeTokens {
+  accessToken: string
+  refreshToken: string
+  expiresIn: number       // Seconds
+  expiresAt: number       // Timestamp when token expires
+  tokenType: string       // "Bearer"
+}
+
+// YouTube settings for user configuration
+export interface YouTubeSettings {
+  isAuthenticated: boolean
+  channelTitle?: string
+  uploadByDefault: boolean
+  videoVisibility: 'public' | 'private' | 'unlisted'
+  defaultCategory: number // YouTube category ID (24=Entertainment)
+}
+
 // YouTube upload response
 export interface YouTubeUploadResult {
   videoId: string
@@ -184,6 +202,11 @@ export interface ProjectHistory {
   outputPath: string
 }
 
+// YouTube OAuth result
+export interface YouTubeLoginResult {
+  success: boolean
+  channelTitle?: string
+  error?: string
 // EPUB chapter information
 export interface EpubChapter {
   id: string                // Unique identifier (e.g., "ch1", "chapter_2")
@@ -227,6 +250,13 @@ export interface ElectronAPI {
   getSystemInfo(): Promise<SystemInfo>
   getEnvConfig(): Promise<EnvConfig>
   getProjectHistory(): Promise<ProjectHistory[]>
+
+  // YouTube OAuth
+  youtubeLogin(): Promise<YouTubeLoginResult>
+  youtubeLogout(): Promise<{ success: boolean; error?: string }>
+  getYouTubeSettings(): Promise<YouTubeSettings>
+  updateYouTubeSettings(settings: YouTubeSettings): Promise<{ success: boolean; error?: string }>
+
   onPipelineProgress(callback: (progress: PipelineProgress) => void): () => void
   onPipelineError(callback: (error: string) => void): () => void
   onAppLog(callback: (log: { timestamp: string; level: string; module: string; message: string }) => void): () => void
