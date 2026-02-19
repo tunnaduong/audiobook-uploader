@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
+import type { EpubMetadata } from '../types'
+import { EpubImporter } from './EpubImporter'
+import { ChapterSelector } from './ChapterSelector'
 import './Dashboard.css'
 
 // Helper function to extract and format chapter information from story text
@@ -122,6 +125,11 @@ interface HomeTabState {
   storyText: string
   douyinUrl: string
   selectedVoice: string
+  // EPUB import state
+  epubFilePath?: string
+  epubMetadata?: EpubMetadata
+  selectedChapters?: Set<number>
+  useEpubInput: boolean
 }
 
 interface SettingsTabState {
@@ -139,6 +147,10 @@ export function Dashboard() {
     storyText: '',
     douyinUrl: '',
     selectedVoice: 'n_hanoi_female_nguyetnga2_book_vc',
+    epubFilePath: undefined,
+    epubMetadata: undefined,
+    selectedChapters: undefined,
+    useEpubInput: false,
   })
 
   const [settingsTabState, setSettingsTabState] = useState<SettingsTabState>({
@@ -251,6 +263,8 @@ function HomeTab({
 }) {
   const [isProcessing, setIsProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
+  const [showEpubImporter, setShowEpubImporter] = useState(false)
+  const [showChapterSelector, setShowChapterSelector] = useState(false)
   const logsContainerRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll logs to bottom when new logs are added
@@ -278,6 +292,38 @@ function HomeTab({
 
   const addLog = (message: string) => {
     setPersistedLogs((prev: string[]) => [...prev, `[${new Date().toLocaleTimeString()}] ${message}`])
+  }
+
+  const handleEpubLoaded = (metadata: EpubMetadata) => {
+    setState({
+      ...state,
+      epubFilePath: metadata.title,
+      epubMetadata: metadata,
+      useEpubInput: true,
+    })
+    setShowEpubImporter(false)
+    setShowChapterSelector(true)
+  }
+
+  const handleChaptersSelected = (selectedChapters: number[]) => {
+    // Aggregate selected chapters into story text
+    if (state.epubMetadata) {
+      const selected = state.epubMetadata.chapters
+        .filter(ch => selectedChapters.includes(ch.number))
+        .sort((a, b) => a.number - b.number)
+
+      const aggregatedText = selected
+        .map(ch => `Chương ${ch.number}: ${ch.title}\n\n${ch.content}`)
+        .join('\n\n---\n\n')
+
+      setState({
+        ...state,
+        storyText: aggregatedText,
+        selectedChapters: new Set(selectedChapters),
+      })
+      setShowChapterSelector(false)
+      addLog(`📚 Đã chọn ${selectedChapters.length} chương từ EPUB`)
+    }
   }
 
   const handleCreateAudiobook = async () => {
@@ -359,6 +405,10 @@ function HomeTab({
           storyText: '',
           douyinUrl: '',
           selectedVoice: 'n_hanoi_female_nguyetnga2_book_vc',
+          epubFilePath: undefined,
+          epubMetadata: undefined,
+          selectedChapters: undefined,
+          useEpubInput: false,
         })
       } else {
         console.log('❌ UI: Pipeline failed with error:', result?.error)
@@ -391,17 +441,122 @@ function HomeTab({
 
   return (
     <div className="home-tab">
-      <div className="form-section">
-        <h2>Nội Dung Truyện</h2>
-        <textarea
-          className="story-input"
-          value={state.storyText}
-          onChange={(e) => setState({ ...state, storyText: e.target.value })}
-          placeholder="Nhập nội dung truyện tại đây... (Có thể dán từ file hoặc trang web)"
+      {/* EPUB Importer Modal */}
+      {showEpubImporter && (
+        <div className="epub-modal-overlay">
+          <div className="epub-modal">
+            <EpubImporter
+              onEpubLoaded={handleEpubLoaded}
+              onClose={() => setShowEpubImporter(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Chapter Selector Modal */}
+      {showChapterSelector && state.epubMetadata && (
+        <div className="epub-modal-overlay">
+          <div className="epub-modal">
+            <ChapterSelector
+              metadata={state.epubMetadata}
+              onConfirm={handleChaptersSelected}
+              onClose={() => setShowChapterSelector(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* EPUB/Manual Input Toggle */}
+      <div className="input-mode-selector">
+        <button
+          className={`mode-button ${!state.useEpubInput ? 'active' : ''}`}
+          onClick={() => setState({ ...state, useEpubInput: false })}
           disabled={isProcessing}
-        />
-        <div className="form-info">{state.storyText.length} ký tự</div>
+        >
+          ✏️ Nhập Thủ Công
+        </button>
+        <button
+          className={`mode-button ${state.useEpubInput ? 'active' : ''}`}
+          onClick={() => setState({ ...state, useEpubInput: true })}
+          disabled={isProcessing}
+        >
+          📖 Nhập từ EPUB
+        </button>
       </div>
+
+      {/* Manual Input Section */}
+      {!state.useEpubInput && (
+        <div className="form-section">
+          <h2>Nội Dung Truyện</h2>
+          <textarea
+            className="story-input"
+            value={state.storyText}
+            onChange={(e) => setState({ ...state, storyText: e.target.value })}
+            placeholder="Nhập nội dung truyện tại đây... (Có thể dán từ file hoặc trang web)"
+            disabled={isProcessing}
+          />
+          <div className="form-info">{state.storyText.length} ký tự</div>
+        </div>
+      )}
+
+      {/* EPUB Input Section */}
+      {state.useEpubInput && (
+        <div className="form-section">
+          <h2>Tệp EPUB</h2>
+          {!state.epubMetadata ? (
+            <div className="epub-input-container">
+              <button
+                className="btn-select-epub"
+                onClick={() => setShowEpubImporter(true)}
+                disabled={isProcessing}
+              >
+                📖 Chọn Tệp EPUB
+              </button>
+              <p className="epub-help-text">Nhấp để chọn tệp EPUB từ máy tính của bạn</p>
+            </div>
+          ) : (
+            <div className="epub-loaded-container">
+              <div className="epub-file-info">
+                <strong>Tệp đã tải:</strong> {state.epubMetadata.title}
+                {state.epubMetadata.author && <div className="epub-author">Tác giả: {state.epubMetadata.author}</div>}
+                <div className="epub-chapters">Tổng số chương: {state.epubMetadata.chapters.length}</div>
+              </div>
+              {state.selectedChapters && state.selectedChapters.size > 0 ? (
+                <div className="epub-selection-info">
+                  <strong>Chương đã chọn:</strong> {Array.from(state.selectedChapters).sort((a, b) => a - b).join(', ')}
+                  <div className="selected-count">({state.selectedChapters.size} chương)</div>
+                </div>
+              ) : (
+                <p className="epub-no-selection">Chưa chọn chương nào</p>
+              )}
+              <div className="epub-action-buttons">
+                <button
+                  className="btn-secondary"
+                  onClick={() => setShowChapterSelector(true)}
+                  disabled={isProcessing}
+                >
+                  📋 Chọn Chương
+                </button>
+                <button
+                  className="btn-secondary"
+                  onClick={() => {
+                    setState({
+                      ...state,
+                      epubFilePath: undefined,
+                      epubMetadata: undefined,
+                      selectedChapters: undefined,
+                      storyText: '',
+                    })
+                  }}
+                  disabled={isProcessing}
+                >
+                  🔄 Tải EPUB Khác
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="form-row">
         <div className="form-group">

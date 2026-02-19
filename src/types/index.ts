@@ -180,13 +180,39 @@ export interface ProjectHistory {
   outputPath: string
 }
 
+// EPUB chapter information
+export interface EpubChapter {
+  id: string                // Unique identifier (e.g., "ch1", "chapter_2")
+  number: number            // Chapter number extracted from title/filename
+  title: string             // Chapter title (e.g., "Chương 1: Tiêu đề")
+  content: string           // Full chapter text (HTML stripped)
+  originalContent: string   // Raw content from EPUB
+  wordCount: number         // Approximate word count for duration estimation
+}
+
+// EPUB file metadata
+export interface EpubMetadata {
+  title: string             // Book title
+  author?: string           // Author name
+  chapters: EpubChapter[]   // All chapters in reading order
+}
+
+// Chapter selection state
+export interface ChapterSelection {
+  selectedChapters: Set<number>  // Track which chapter numbers are selected
+  selectedTitles: string[]       // Chapter titles for display
+  totalWordCount: number         // Sum of selected chapters' word counts
+}
+
 // IPC API interface
 export interface ElectronAPI {
   selectFolder(): Promise<string>
+  selectFile(filters?: Array<{ name: string; extensions: string[] }>): Promise<string>
   openFile(path: string): Promise<void>
   openPath(folderPath: string): Promise<string>
   getVideoDuration(filePath: string): Promise<string>
   getNextVideoFolder(): Promise<{ folderPath: string; videoNum: number }>
+  parseEpubFile(filePath: string): Promise<{ success: boolean; data?: EpubMetadata; error?: string }>
   startPipeline(config: PipelineConfig): Promise<PipelineResult>
   cancelPipeline(): Promise<void>
   getPipelineProgress(): Promise<PipelineProgress>
