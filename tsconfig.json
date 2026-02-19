@@ -36,5 +36,6 @@
     }
   },
   "include": ["src", "electron", "src/**/*.tsx", "src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "src/services/epub.ts", "src/utils/epub-utils.ts", "src/components/EpubImporter.tsx", "src/components/ChapterSelector.tsx"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

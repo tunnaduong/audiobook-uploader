@@ -16,6 +16,10 @@ module.exports = {
     output: 'dist/release',
   },
 
+  // Disable ASAR to avoid file locking issues on Windows
+  asar: false,
+  asarUnpack: [],
+
   // Windows build configuration
   win: {
     target: [

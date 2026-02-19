@@ -1,0 +1,146 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v0.1.0
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+            artifact-name: Audiobook-Uploader-0.1.0-x64
+          - os: macos-latest
+            platform: macos
+            artifact-name: Audiobook-Uploader-0.1.0
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Type check
+        run: npm run type-check
+
+      - name: Build Electron
+        run: npm run build:electron
+
+      - name: Build Renderer
+        run: npm run build:renderer
+
+      - name: Build Windows
+        if: matrix.platform == 'windows'
+        run: npm run build:win
+        shell: bash
+
+      - name: Build macOS
+        if: matrix.platform == 'macos'
+        run: npm run build:mac
+        shell: bash
+
+      - name: List artifacts
+        run: |
+          echo "=== Artifacts Created ==="
+          ls -la dist/release/
+        shell: bash
+
+      - name: Upload Windows artifacts
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows-release
+          path: dist/release/*.exe*
+          retention-days: 7
+
+      - name: Upload macOS artifacts
+        if: matrix.platform == 'macos'
+        uses: actions/upload-artifact@v3
+        with:
+          name: macos-release
+          path: |
+            dist/release/*.dmg
+            dist/release/*.zip
+
+  create-release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: windows-release
+          path: ./windows-release
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: macos-release
+          path: ./macos-release
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ./windows-release/*
+            ./macos-release/*
+          body: |
+            # Audiobook Uploader Release
+
+            ## Platform-Specific Downloads
+
+            ### Windows
+            - **Audiobook-Uploader-0.1.0-x64.exe** - NSIS Installer (Professional setup wizard)
+            - **Audiobook-Uploader-0.1.0-x64.exe** - Portable version (no installation required)
+
+            ### macOS
+            - **Audiobook-Uploader-0.1.0.dmg** - DMG Installer (drag & drop to Applications)
+            - **Audiobook-Uploader-0.1.0.zip** - ZIP Archive (alternative distribution)
+
+            ## Installation Instructions
+
+            ### Windows
+            1. Download `Audiobook-Uploader-0.1.0-x64.exe`
+            2. Run the installer or portable executable
+            3. Follow the setup wizard (if using installer)
+
+            ### macOS
+            1. Download `Audiobook-Uploader-0.1.0.dmg`
+            2. Open the DMG file
+            3. Drag Audiobook Uploader to Applications folder
+            4. Launch from Applications
+
+            ## Features Included
+            - ✅ Video composition with FFmpeg
+            - ✅ Thumbnail generation via Google Gemini API
+            - ✅ YouTube OAuth 2.0 authentication
+            - ✅ Automatic YouTube upload
+            - ✅ Project history and settings persistence
+
+            ## System Requirements
+            - Windows 10+ (64-bit) or macOS 10.13+ (Intel/Apple Silicon)
+            - FFmpeg installed on system (auto-detection)
+            - Internet connection for API services
+            - Google account for YouTube upload feature
+
+            ## Release Notes
+            See [RELEASE_NOTES.md](https://github.com/${{ github.repository }}/blob/main/RELEASE_NOTES.md) for detailed feature list.
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
