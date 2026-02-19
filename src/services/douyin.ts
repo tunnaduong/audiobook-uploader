@@ -1,13 +1,78 @@
-import { exec } from 'child_process'
 import path from 'path'
 import fs from 'fs'
-import { promisify } from 'util'
+import https from 'https'
 import { createLogger } from '../utils/logger'
-import { getDouyinDownloaderPath, createDouyinConfig, checkPythonInstallation } from '../utils/douyin-downloader-setup'
 import type { Video } from '../types'
 
-const execAsync = promisify(exec)
 const logger = createLogger('douyin-service')
+
+// Douyin API endpoint with minimal=true for reduced data
+const DOUYIN_API_URL = 'https://douyin.tunnaduong.com/api/hybrid/video_data'
+
+/**
+ * Fetch JSON from HTTPS URL with proper error handling
+ */
+function fetchJson(url: string): Promise<any> {
+  return new Promise((resolve, reject) => {
+    https
+      .get(url, (res) => {
+        let data = ''
+
+        res.on('data', (chunk) => {
+          data += chunk
+        })
+
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(data)
+            // Check if response has error code
+            if (parsed?.code !== 200) {
+              reject(new Error(`API Error ${parsed?.code || 'unknown'}: ${parsed?.msg || parsed?.message || 'Unknown error'}`))
+              return
+            }
+            resolve(parsed)
+          } catch (e) {
+            reject(new Error(`Failed to parse JSON: ${e}`))
+          }
+        })
+      })
+      .on('error', (err) => {
+        reject(new Error(`HTTPS request failed: ${err.message}`))
+      })
+  })
+}
+
+/**
+ * Download video file from URL and save to disk
+ */
+async function downloadVideoFile(url: string, outputPath: string): Promise<void> {
+  logger.debug(`💾 Downloading video from CDN...`)
+
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(outputPath)
+
+    https
+      .get(url, (res) => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`))
+          return
+        }
+
+        res.pipe(file)
+
+        file.on('finish', () => {
+          file.close()
+          logger.debug(`✅ Video file saved: ${outputPath}`)
+          resolve()
+        })
+      })
+      .on('error', (err) => {
+        fs.unlink(outputPath, () => {}) // Delete partial file
+        reject(new Error(`CDN download failed: ${err.message}`))
+      })
+  })
+}
+
 
 interface DownloadOptions {
   outputPath: string
@@ -37,68 +102,81 @@ export async function downloadDouyinVideo(
   videoUrl: string,
   options: DownloadOptions
 ): Promise<Video> {
-  let configFilePath: string | null = null
-
   try {
     logger.info(`🎬 Downloading Douyin video: ${videoUrl}`)
 
-    // Check Python installation
-    if (!checkPythonInstallation()) {
-      throw new Error('Python 3.9+ is required. Please install Python from https://www.python.org/')
+    // Validate Douyin URL
+    if (!isValidDouyinUrl(videoUrl)) {
+      throw new Error(`Invalid Douyin URL: ${videoUrl}`)
     }
 
-    // Get douyin-downloader path
-    const downloaderPath = await getDouyinDownloaderPath()
-
-    // Get cookies file if configured
-    const cookiesFile = process.env.DOUYIN_COOKIES_FILE
-    if (cookiesFile && !fs.existsSync(cookiesFile)) {
-      logger.warn(`⚠️  Cookies file not found: ${cookiesFile}`)
+    // Create output directory if it doesn't exist
+    if (!fs.existsSync(options.outputPath)) {
+      fs.mkdirSync(options.outputPath, { recursive: true })
+      logger.debug(`📁 Created output directory: ${options.outputPath}`)
     }
 
-    // Create temp config file
-    configFilePath = createDouyinConfig(videoUrl, options.outputPath, cookiesFile)
-
-    // Build Python command to run DouYinCommand.py
-    const scriptPath = path.join(downloaderPath, 'DouYinCommand.py')
-    const command = `python "${scriptPath}" --config "${configFilePath}"`
-
-    logger.info(`🔧 Executing douyin-downloader (V1.0 - Stable)...`)
-    logger.debug(`Command: ${command}`)
-
-    // Execute download
     const startTime = Date.now()
-    const { stdout, stderr } = await execAsync(command, {
-      maxBuffer: 50 * 1024 * 1024, // 50MB buffer
-      timeout: 600000, // 10 minutes timeout
-      cwd: downloaderPath, // Run from downloader directory
-    })
 
+    // Call Douyin API to get video data
+    logger.info(`📡 Fetching video metadata from API...`)
+    const apiUrl = `${DOUYIN_API_URL}?url=${encodeURIComponent(videoUrl)}&minimal=true`
+    logger.debug(`🔗 API URL: ${apiUrl}`)
+
+    let apiResponse
+    try {
+      apiResponse = await fetchJson(apiUrl)
+    } catch (apiError) {
+      const errorMsg = apiError instanceof Error ? apiError.message : String(apiError)
+      logger.error(`🔴 API call failed: ${errorMsg}`)
+
+      if (errorMsg.includes('API Error')) {
+        throw new Error(`Failed to fetch video metadata from Douyin API.\n\nTry:\n1. Make sure the Douyin URL is valid and publicly accessible\n2. Wait a few minutes and try again\n3. Try a different video`)
+      }
+
+      throw apiError
+    }
+
+    logger.debug(`✅ Got API response with code: ${apiResponse?.code}`)
+
+    // Extract video download URL from API response
+    // Response structure: { code: 200, data: { video_data: { nwm_video_url_HQ: "..." } } }
+    const videoDownloadUrl = apiResponse?.data?.video_data?.nwm_video_url_HQ ||
+                             apiResponse?.data?.video_data?.nwm_video_url ||
+                             apiResponse?.data?.video_data?.wm_video_url_HQ ||
+                             apiResponse?.data?.video_data?.wm_video_url
+
+    if (!videoDownloadUrl) {
+      logger.error(`❌ Could not extract video URL from API response`)
+      logger.error(`   Available fields: ${Object.keys(apiResponse?.data?.video_data || {}).join(', ')}`)
+      throw new Error('Failed to extract video download URL from API response.')
+    }
+
+    logger.info(`✅ Got video download URL from API`)
+    logger.debug(`🎥 Video URL: ${videoDownloadUrl.substring(0, 100)}...`)
+
+    // Download video file from CDN
+    const outputFilePath = path.join(options.outputPath, 'video.mp4')
+    logger.debug(`💾 Downloading to: ${outputFilePath}`)
+
+    await downloadVideoFile(videoDownloadUrl, outputFilePath)
+
+    // Verify file was created
+    if (!fs.existsSync(outputFilePath)) {
+      throw new Error('Video file was not created')
+    }
+
+    const fileSizeKB = Math.round(fs.statSync(outputFilePath).size / 1024)
     const elapsedSeconds = Math.round((Date.now() - startTime) / 1000)
 
-    if (stderr) {
-      logger.debug(`Downloader output: ${stderr}`)
-    }
-
-    if (stdout) {
-      logger.debug(`Downloader stdout: ${stdout}`)
-    }
-
-    // Find the downloaded video file
-    const downloadedFile = findDownloadedVideo(options.outputPath)
-
-    if (!downloadedFile) {
-      throw new Error('Video file not found after download. Check logs for details.')
-    }
-
-    logger.info(`✅ Successfully downloaded video in ${elapsedSeconds}s`)
+    logger.info(`✅ Successfully downloaded Douyin video in ${elapsedSeconds}s (${fileSizeKB}KB)`)
 
     return {
-      id: extractVideoId(videoUrl) || 'unknown',
-      title: path.basename(downloadedFile, path.extname(downloadedFile)),
+      id: apiResponse?.data?.video_id || extractVideoId(videoUrl) || 'unknown',
+      title: apiResponse?.data?.desc || path.basename(outputFilePath, path.extname(outputFilePath)),
       url: videoUrl,
       duration: 0, // Could be enhanced with video duration detection
-      localPath: downloadedFile,
+      localPath: outputFilePath,
       downloadedAt: new Date(),
     }
   } catch (error) {
@@ -108,58 +186,11 @@ export async function downloadDouyinVideo(
     // Provide helpful error message
     let helpMessage = `Douyin download failed: ${errorMsg}`
 
-    if (errorMsg.includes('Python')) {
-      helpMessage += `\n\n⚠️  Python is required to use douyin-downloader.\n\nPlease install Python 3.9+ from: https://www.python.org/\n\nAfter installation, restart the app.`
-    } else if (errorMsg.includes('douyin-downloader')) {
-      helpMessage += `\n\n⚠️  douyin-downloader not installed.\n\nPlease install dependencies:\n1. cd "C:\\dev\\audiobook-uploader\\bin\\douyin-downloader"\n2. pip install -r requirements.txt`
-    } else if (errorMsg.includes('Cookie') || errorMsg.includes('cookies')) {
-      helpMessage += `\n\n⚠️  Douyin requires valid cookies to download videos.\n\nTo get fresh cookies:\n1. Open Chrome and visit: https://www.douyin.com/\n2. Watch 2-3 videos to ensure cookies are set\n3. Restart the app\n4. Try downloading again`
+    if (errorMsg.includes('Invalid Douyin URL')) {
+      helpMessage += `\n\n⚠️  Please check the Douyin URL format.\n\nValid formats:\n- https://v.douyin.com/XXXX/\n- https://www.douyin.com/video/XXXXXXXXX`
     }
 
     throw new Error(helpMessage)
-  } finally {
-    // Clean up temp config file
-    if (configFilePath && fs.existsSync(configFilePath)) {
-      try {
-        fs.unlinkSync(configFilePath)
-        logger.debug(`Cleaned up temp config: ${configFilePath}`)
-      } catch {
-        logger.warn(`Failed to clean up temp config: ${configFilePath}`)
-      }
-    }
-  }
-}
-
-/**
- * Find the downloaded video file in output directory
- */
-function findDownloadedVideo(outputPath: string): string | null {
-  try {
-    if (!fs.existsSync(outputPath)) {
-      return null
-    }
-
-    const files = fs.readdirSync(outputPath)
-
-    // Look for MP4 files (most recent first)
-    const videoFiles = files
-      .filter(f => f.toLowerCase().endsWith('.mp4'))
-      .map(f => path.join(outputPath, f))
-      .sort((a, b) => {
-        const statA = fs.statSync(a)
-        const statB = fs.statSync(b)
-        return statB.mtimeMs - statA.mtimeMs // Most recent first
-      })
-
-    if (videoFiles.length > 0) {
-      logger.info(`📁 Found video: ${videoFiles[0]}`)
-      return videoFiles[0]
-    }
-
-    return null
-  } catch (error) {
-    logger.warn(`Failed to find downloaded video: ${error}`)
-    return null
   }
 }
 
