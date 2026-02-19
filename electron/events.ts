@@ -1,6 +1,8 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron'
 import path from 'path'
-import { getAppDataPath, initializeDatabase, getProjectHistory, deleteProject as dbDeleteProject } from '../src/utils/database'
+import fs from 'fs'
+import { exec } from 'child_process'
+import { getAppDataPath, initializeDatabase, getProjectHistory, deleteProject as dbDeleteProject, getOutputsByProject } from '../src/utils/database'
 import { executePipeline } from '../src/services/pipeline'
 import { onLog } from '../src/utils/logger'
 import type { PipelineConfig, AppSettings, PipelineResult } from '../src/types'
@@ -34,6 +36,50 @@ export function setupIpcHandlers(window: BrowserWindow) {
     // Open file in default application
     const { shell } = await import('electron')
     await shell.openPath(filePath)
+  })
+
+  ipcMain.handle('open-path', async (_event, folderPath: string) => {
+    // Open folder in default file explorer
+    const { shell } = await import('electron')
+    return await shell.openPath(folderPath)
+  })
+
+  ipcMain.handle('get-video-duration', async (_event, filePath: string) => {
+    // Get video duration using ffprobe if available, otherwise return 'N/A'
+    return new Promise((resolve) => {
+      // Check if file exists first
+      if (!fs.existsSync(filePath)) {
+        resolve('N/A')
+        return
+      }
+
+      // Try using ffprobe to get duration
+      const command = process.platform === 'win32'
+        ? `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1:noinherit=1 "${filePath}"`
+        : `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1:noinherit=1 '${filePath}'`
+
+      exec(command, (error, stdout, _stderr) => {
+        if (error) {
+          console.warn(`Could not get video duration: ${error.message}`)
+          resolve('N/A')
+        } else {
+          try {
+            const durationSeconds = parseFloat(stdout.trim())
+            if (!isNaN(durationSeconds)) {
+              const minutes = Math.floor(durationSeconds / 60)
+              const seconds = Math.floor(durationSeconds % 60)
+              const durationStr = `${minutes}:${seconds.toString().padStart(2, '0')}`
+              resolve(durationStr)
+            } else {
+              resolve('N/A')
+            }
+          } catch (e) {
+            console.warn('Could not parse video duration')
+            resolve('N/A')
+          }
+        }
+      })
+    })
   })
 
   // Settings
@@ -168,17 +214,124 @@ export function setupIpcHandlers(window: BrowserWindow) {
       await initializeDatabase()
       const projects = await getProjectHistory()
       // Transform database projects to ProjectHistory format for UI
-      return projects.map((p) => ({
-        id: p.id,
-        name: p.title,
-        date: p.createdAt ? new Date(p.createdAt).toLocaleString('vi-VN') : 'N/A',
-        duration: p.progress ? `${p.progress * 0.6}:00` : 'N/A', // Rough estimate
-        status: p.status === 'completed' ? 'completed' : 'failed',
-        outputPath: path.join(getAppDataPath(), 'output', `vid_${p.id}`),
-      }))
+      const historyItems = await Promise.all(
+        projects.map(async (p) => {
+          // Format date - handle both snake_case and camelCase fields
+          const createdAt = (p.created_at || p.createdAt) as string | undefined
+          const dateStr = createdAt
+            ? new Date(createdAt).toLocaleString('vi-VN')
+            : 'N/A'
+
+          // Get actual output path and duration from database
+          let outputPath: string | null = null
+          let durationStr = 'N/A'
+
+          try {
+            const outputs = await getOutputsByProject(p.id)
+            if (outputs.length > 0) {
+              const output = outputs[0]
+              // Get the path from the database
+              const savedVideoPath = output.final_video_path
+              if (savedVideoPath) {
+                // Extract the folder containing the video
+                outputPath = path.dirname(savedVideoPath)
+
+                // Get video duration from database (saved during pipeline completion)
+                if (output.duration) {
+                  const minutes = Math.floor(output.duration / 60)
+                  const seconds = output.duration % 60
+                  durationStr = `${minutes}:${seconds.toString().padStart(2, '0')}`
+                  console.debug(`📊 Got video duration from database: ${output.duration}s → ${durationStr}`)
+                } else {
+                  console.debug(`⚠️ No duration in database for project ${p.id}`)
+                  durationStr = 'N/A'
+                }
+              }
+            }
+          } catch (dbErr) {
+            console.debug(`Could not get outputs for project ${p.id}:`, dbErr)
+          }
+
+          // Fallback: if we couldn't get the path from outputs, use the project ID to construct it
+          if (!outputPath) {
+            outputPath = path.join(getAppDataPath(), 'output', `vid_${p.id}`)
+          }
+
+          return {
+            id: p.id,
+            name: p.title,
+            date: dateStr,
+            duration: durationStr,
+            status: p.status === 'completed' ? 'completed' : 'failed',
+            outputPath: outputPath,
+          }
+        })
+      )
+
+      return historyItems
     } catch (error) {
       console.error('❌ Failed to load project history:', error)
       return []
     }
+  })
+
+  // Get video folder - reuses existing folder if it has incomplete files, otherwise creates new
+  // This saves API tokens by not redoing work for incomplete projects
+  ipcMain.handle('get-next-video-folder', async () => {
+    const baseOutputPath = 'C:\\dev\\audiobook-uploader\\output'
+    let maxNum = 0
+    let lastFolderPath = ''
+
+    try {
+      if (fs.existsSync(baseOutputPath)) {
+        const files = fs.readdirSync(baseOutputPath)
+        for (const file of files) {
+          const match = file.match(/^vid_(\d+)$/)
+          if (match) {
+            const num = parseInt(match[1], 10)
+            if (num > maxNum) {
+              maxNum = num
+              lastFolderPath = path.join(baseOutputPath, `vid_${num}`)
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('⚠️ Could not read output directory:', error)
+    }
+
+    // Logic: Reuse incomplete folders, only create new ones when folder is "done"
+    // A folder is "done" if it has final_video.mp4
+    let folderToUse = lastFolderPath
+    let videoNum = maxNum
+
+    if (lastFolderPath && fs.existsSync(lastFolderPath)) {
+      try {
+        const folderContents = fs.readdirSync(lastFolderPath)
+        const hasFinalVideo = folderContents.includes('final_video.mp4')
+
+        if (hasFinalVideo) {
+          // Last folder is complete (has final video), create a new folder
+          videoNum = maxNum + 1
+          folderToUse = path.join(baseOutputPath, `vid_${videoNum}`)
+          console.log(`✅ Folder vid_${maxNum} is complete - creating new folder: vid_${videoNum}`)
+        } else {
+          // Last folder is incomplete, reuse it (skip wasted API calls)
+          console.log(`♻️ Reusing incomplete folder vid_${maxNum} (skip API tokens) - files: ${folderContents.join(', ')}`)
+        }
+      } catch (error) {
+        console.warn('⚠️ Could not check folder contents:', error)
+        videoNum = maxNum + 1
+        folderToUse = path.join(baseOutputPath, `vid_${videoNum}`)
+      }
+    } else if (maxNum === 0) {
+      // No folders exist yet, create first one
+      videoNum = 1
+      folderToUse = path.join(baseOutputPath, `vid_1`)
+      console.log(`📁 Creating first folder: vid_1`)
+    }
+
+    console.log(`📁 Using folder: ${folderToUse}`)
+    return { folderPath: folderToUse, videoNum }
   })
 }

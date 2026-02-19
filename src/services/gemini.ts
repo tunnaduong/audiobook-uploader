@@ -47,7 +47,7 @@ const COMET_API_KEY = process.env.COMET_API_KEY
 
 // Models
 const GEMINI_PROMPT_MODEL = 'gemini-3-flash'  // For prompt generation (via Google)
-const NANO_BANANA_MODEL = 'gemini-3-pro-image'  // For image generation (via CometAPI)
+const NANO_BANANA_MODEL = 'gemini-3-pro-image'  // For image generation (via CometAPI) - Nano Banana
 
 let geminiClient: AxiosInstance | null = null
 let cometClient: AxiosInstance | null = null
@@ -391,7 +391,8 @@ export async function validateBananaConnection(): Promise<boolean> {
 export async function generateModernOrientalThumbnail(
   avatarImagePath: string,       // Reference avatar for style guidance
   storyTitle: string,
-  outputPath: string
+  outputPath: string,
+  referenceImagePath?: string    // Optional: Story cover/reference image for visual style consistency
 ): Promise<ThumbnailImage> {
   if (!COMET_API_KEY) {
     logger.warn('COMET_API_KEY not set. Get from https://cometapi.com')
@@ -402,7 +403,7 @@ export async function generateModernOrientalThumbnail(
   try {
     logger.info('🎨 Generating Modern Oriental style thumbnail using Nano Banana via CometAPI')
 
-    // First, load and encode avatar image as base64 for vision capability
+    // Load and encode avatar image as base64 for vision capability
     let avatarBase64: string | null = null
     try {
       const { readFile } = await import('fs/promises')
@@ -414,6 +415,20 @@ export async function generateModernOrientalThumbnail(
       // Continue without avatar - it's optional
     }
 
+    // Load and encode reference image as base64 (story cover/design reference)
+    let referenceBase64: string | null = null
+    if (referenceImagePath) {
+      try {
+        const { readFile } = await import('fs/promises')
+        const referenceBuffer = await readFile(referenceImagePath)
+        referenceBase64 = referenceBuffer.toString('base64')
+        logger.info(`Reference image loaded and encoded: ${referenceImagePath}`)
+      } catch (refError) {
+        logger.warn(`Could not load reference image: ${referenceImagePath}`, refError)
+        // Continue without reference - it's optional
+      }
+    }
+
     const client = initializeCometClient()
 
     // Modern Oriental style prompt optimized for Nano Banana
@@ -421,6 +436,8 @@ export async function generateModernOrientalThumbnail(
     const moderateOrientalPrompt = `Create a YouTube thumbnail in Modern Oriental (Á Đông hiện đại) style with Flat Design aesthetic for an audiobook titled: "${storyTitle}"
 
 requirements: 16:9 aspect ratio, 1920x1080 resolution
+
+IMPORTANT: Use the provided reference image(s) to match the visual style, color palette, and aesthetic. The reference image shows the story's design language and atmosphere.
 
 Design Requirements:
 1. Layout & Structure:
@@ -433,12 +450,14 @@ Design Requirements:
    - Primary: Deep Red (#990000) for main title text
    - Secondary: Slate Blue (#5D7B93) for decorative elements
    - Accent: Gold/Yellow for highlights and details
+   - Match the color scheme from the reference image
 
 3. Graphic Elements:
    - Traditional cloud patterns (ngũ sắc style, Vietnamese/Chinese aesthetic)
    - Fine flowing lines with gentle shadows throughout
    - Central icon: Open book with flowing ribbons/waves and musical notes
    - Bottom corner: Circular logo/watermark with book icon
+   - Incorporate visual elements and style from the reference image
 
 4. Typography:
    - Main Title: Brush-style font, thick strokes, rounded ends, Deep Red color
@@ -452,21 +471,33 @@ Design Requirements:
    - Aspect ratio: 16:9 (1920x1080 resolution)
    - High quality, vibrant yet harmonious colors
    - Premium, polished appearance
+   - Cohesive with the visual style shown in the reference image(s)
 
 Generate the complete, high-quality thumbnail image.`
 
-    // Build request with vision capability if avatar is available
+    // Build request with vision capability - include both reference images
     const parts: any[] = []
 
+    // Add reference image first (large, prominent reference for visual consistency)
+    if (referenceBase64) {
+      parts.push({
+        inlineData: {
+          mimeType: 'image/jpeg',
+          data: referenceBase64,
+        },
+      })
+      logger.info('📖 Story reference image included as primary visual guide')
+    }
+
+    // Add avatar image as secondary style reference
     if (avatarBase64) {
-      // Include avatar image as reference for style consistency (Nano Banana's strength!)
       parts.push({
         inlineData: {
           mimeType: 'image/jpeg',
           data: avatarBase64,
         },
       })
-      logger.info('👀 Avatar image included as style reference for consistency')
+      logger.info('👀 Avatar image included as secondary style reference for consistency')
     }
 
     // Add text prompt
@@ -489,7 +520,7 @@ Generate the complete, high-quality thumbnail image.`
         temperature: 0.8,  // Slightly lower for more consistent style
         topP: 0.95,
         topK: 40,
-        responseModalities: ['IMAGE', 'TEXT'],
+        responseModalities: ['IMAGE'],  // ONLY image, no text!
       },
     }, {
       headers: {
@@ -538,9 +569,14 @@ Generate the complete, high-quality thumbnail image.`
       return createPlaceholderThumbnail(outputPath)
     }
 
-    // Validate it looks like base64 (alphanumeric + / and + characters)
-    if (!/^[A-Za-z0-9+/=]+$/.test(imageBase64)) {
-      logger.warn('Image data does not appear to be valid base64 format')
+    // Clean up base64 (remove newlines, whitespace that may come from API response)
+    const cleanBase64 = imageBase64.replace(/[\s\n\r]/g, '')
+
+    // Validate it looks like base64 (alphanumeric + / and + characters, with = for padding)
+    // Allow for JSON-embedded base64 which may have escaped characters
+    if (!/^[A-Za-z0-9+/=]+$/.test(cleanBase64)) {
+      logger.warn(`Image data does not appear to be valid base64 format`)
+      logger.warn(`Cleaned base64 sample: ${cleanBase64.substring(0, 100)}...`)
       logger.warn('Using placeholder thumbnail instead')
       return createPlaceholderThumbnail(outputPath)
     }
@@ -548,7 +584,7 @@ Generate the complete, high-quality thumbnail image.`
     try {
       // Decode base64 and save to file
       const { writeFile } = await import('fs/promises')
-      const imageBuffer = Buffer.from(imageBase64, 'base64')
+      const imageBuffer = Buffer.from(cleanBase64, 'base64')
 
       logger.info(`💾 Writing Nano Banana thumbnail: ${imageBuffer.length} bytes → ${outputPath}`)
       await writeFile(outputPath, imageBuffer)

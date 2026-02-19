@@ -24,6 +24,7 @@
     "axios": "^1.6.0",
     "decompress": "^4.2.1",
     "dotenv": "^16.6.1",
+    "get-audio-duration": "^4.0.1",
     "https-proxy-agent": "^7.0.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

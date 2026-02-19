@@ -9,6 +9,7 @@
 
 import path from 'path'
 import fs from 'fs'
+import { getAudioDurationInSeconds } from 'get-audio-duration'
 import { createLogger } from '../utils/logger'
 import { composeBannerVideo, getVideoInfo, mixVoiceoverWithMusic } from './ffmpeg'
 import { generateModernOrientalThumbnail } from './gemini'
@@ -20,6 +21,23 @@ import type { YouTubeUploadResult } from '../types'
 
 const logger = createLogger('pipeline-service')
 
+/**
+ * Get audio duration safely with error handling
+ */
+async function getAudioDuration(filePath: string): Promise<number> {
+  try {
+    if (!fs.existsSync(filePath)) {
+      logger.warn(`Audio file not found: ${filePath}`)
+      return 0
+    }
+    const duration = await getAudioDurationInSeconds(filePath)
+    return Math.round(duration)
+  } catch (error) {
+    logger.warn(`Could not get audio duration for ${filePath}: ${error}`)
+    return 0
+  }
+}
+
 export interface PipelineConfig {
   // Input files
   storyText: string
@@ -28,6 +46,7 @@ export interface PipelineConfig {
   cookingVideoPath: string        // Douyin video OR URL
   backgroundMusicPath: string     // bg-music.m4a
   avatarImagePath: string         // avatar.png for thumbnail style
+  referenceImagePath?: string     // Optional: Story cover/reference image for thumbnail visual style
 
   // Output paths
   outputVideoPath: string
@@ -38,6 +57,7 @@ export interface PipelineConfig {
   uploadToYoutube?: boolean       // Whether to upload after generation
   youtubeAccessToken?: string     // OAuth token for YouTube
   douyinUrl?: string              // Optional: Download Douyin video if provided
+  resumeOnExist?: boolean         // Skip steps if intermediate files exist (mixed_audio, voiceover, final_video)
 }
 
 export interface PipelineResult {
@@ -158,11 +178,18 @@ export async function executePipeline(
     onProgress?.(steps[1])
 
     let finalCookingVideoPath: string = config.cookingVideoPath
+    const cookingVideoOutputPath = path.join(outputDir, 'final_video.mp4')
 
-    if (config.douyinUrl !== undefined && isValidDouyinUrl(config.douyinUrl)) {
+    // Check if final_video.mp4 already exists - if so, skip Douyin download
+    if (config.resumeOnExist && fs.existsSync(cookingVideoOutputPath)) {
+      logger.info('📹 Final video already exists - skipping Douyin download')
+      finalCookingVideoPath = cookingVideoOutputPath
+      steps[1].status = 'completed'
+      steps[1].progress = 100
+      steps[1].message = 'Douyin download skipped (final_video.mp4 exists)'
+    } else if (config.douyinUrl !== undefined && isValidDouyinUrl(config.douyinUrl)) {
       try {
         logger.info(`🎬 Douyin URL detected: ${config.douyinUrl}`)
-        const outputDir = path.dirname(config.outputVideoPath)
         const downloadedVideo = await downloadDouyinVideo(config.douyinUrl, {
           outputPath: outputDir,
         })
@@ -191,20 +218,31 @@ export async function executePipeline(
     onProgress?.(steps[2])
 
     const voiceoverPath = path.join(path.dirname(config.outputVideoPath), 'voiceover.mp3')
-    logger.info(`Converting story text to speech: "${config.storyTitle}"`)
+    let audioResult: any
 
-    const audioResult = await convertTextToSpeech(
-      config.storyText,
-      voiceoverPath
-    )
-
-    steps[2].status = 'completed'
-    steps[2].progress = 100
-    steps[2].message = `Audiobook voiceover generated: ${path.basename(audioResult.path)} (${audioResult.duration}s)`
+    // Check if voiceover.mp3 already exists - if so, skip Vbee TTS
+    if (config.resumeOnExist && fs.existsSync(voiceoverPath)) {
+      logger.info('🎤 Voiceover already exists - skipping Vbee TTS')
+      // Get duration from existing file
+      const voiceoverDuration = await getAudioDuration(voiceoverPath)
+      audioResult = { path: voiceoverPath, duration: voiceoverDuration }
+      steps[2].status = 'completed'
+      steps[2].progress = 100
+      steps[2].message = `Vbee TTS skipped (voiceover.mp3 exists - ${voiceoverDuration}s)`
+    } else {
+      logger.info(`Converting story text to speech: "${config.storyTitle}"`)
+      audioResult = await convertTextToSpeech(
+        config.storyText,
+        voiceoverPath
+      )
+      steps[2].status = 'completed'
+      steps[2].progress = 100
+      steps[2].message = `Audiobook voiceover generated: ${path.basename(audioResult.path)} (${audioResult.duration}s)`
+    }
     onProgress?.(steps[2])
 
     result.voiceoverPath = audioResult.path
-    logger.info(`Voiceover created: ${audioResult.path}`)
+    logger.info(`Voiceover: ${audioResult.path}`)
 
     // Step 4: Mix voiceover with background music (if music file exists)
     logger.info('Step 4: Mixing audio')
@@ -213,10 +251,20 @@ export async function executePipeline(
     onProgress?.(steps[3])
 
     let finalAudioPath = audioResult.path
+    let finalAudioDuration = audioResult.duration // Start with voiceover duration
+    const mixedAudioPath = path.join(path.dirname(config.outputVideoPath), 'mixed_audio.m4a')
 
-    if (fs.existsSync(config.backgroundMusicPath)) {
+    // Check if mixed_audio.m4a already exists - if so, skip mixing
+    if (config.resumeOnExist && fs.existsSync(mixedAudioPath)) {
+      logger.info('🎵 Mixed audio already exists - skipping audio mixing')
+      finalAudioPath = mixedAudioPath
+      // Get the actual duration of the existing mixed audio
+      finalAudioDuration = await getAudioDuration(mixedAudioPath)
+      steps[3].status = 'completed'
+      steps[3].progress = 100
+      steps[3].message = `Audio mixing skipped (mixed_audio.m4a exists - ${finalAudioDuration}s)`
+    } else if (fs.existsSync(config.backgroundMusicPath)) {
       try {
-        const mixedAudioPath = path.join(path.dirname(config.outputVideoPath), 'mixed_audio.m4a')
         logger.info(`🎵 Mixing voiceover with background music`)
 
         await mixVoiceoverWithMusic(
@@ -226,9 +274,11 @@ export async function executePipeline(
         )
 
         finalAudioPath = mixedAudioPath
+        // Get duration of newly mixed audio
+        finalAudioDuration = await getAudioDuration(mixedAudioPath)
         steps[3].status = 'completed'
         steps[3].progress = 100
-        steps[3].message = 'Audio mixing completed: voiceover (100%) + music (50%)'
+        steps[3].message = `Audio mixing completed: voiceover (100%) + music (50%) - ${finalAudioDuration}s`
         logger.info(`✅ Audio mixing completed: ${mixedAudioPath}`)
       } catch (error) {
         logger.warn(`⚠️ Audio mixing failed: ${error}. Using voiceover only.`)
@@ -250,31 +300,32 @@ export async function executePipeline(
     steps[4].progress = 10
     onProgress?.(steps[4])
 
-    // Get cooking video duration to check if voiceover is longer
+    // Get cooking video duration to check if audio is longer
     const cookingVideoInfo = await getVideoInfo(finalCookingVideoPath)
-    const voiceoverDuration = audioResult.duration || config.videoDuration || 60
+    // Use the actual final audio duration (either mixed audio or voiceover)
+    const videoDuration = finalAudioDuration || config.videoDuration || 60
 
     logger.info(
-      `Cooking video duration: ${cookingVideoInfo.duration}s, Voiceover duration: ${voiceoverDuration}s`
+      `Cooking video duration: ${cookingVideoInfo.duration}s, Audio duration: ${videoDuration}s`
     )
 
-    // If voiceover is longer than cooking video, warn user
-    if (voiceoverDuration > cookingVideoInfo.duration) {
+    // If audio is longer than cooking video, warn user
+    if (videoDuration > cookingVideoInfo.duration) {
       logger.warn(
-        `⚠️ Voiceover (${voiceoverDuration}s) is longer than cooking video (${cookingVideoInfo.duration}s). ` +
-        `Cooking video will be looped ${Math.ceil(voiceoverDuration / cookingVideoInfo.duration)}x. ` +
-        `For best results, use a cooking video at least ${voiceoverDuration}s long.`
+        `⚠️ Audio (${videoDuration}s) is longer than cooking video (${cookingVideoInfo.duration}s). ` +
+        `Cooking video will be looped ${Math.ceil(videoDuration / cookingVideoInfo.duration)}x. ` +
+        `For best results, use a cooking video at least ${videoDuration}s long.`
       )
     }
 
-    logger.info(`Composing video with duration: ${voiceoverDuration}s (based on audio duration)`)
+    logger.info(`Composing video with duration: ${videoDuration}s (based on final audio duration)`)
 
     const videoResult = await composeBannerVideo(
       config.bannerImagePath,
       finalCookingVideoPath,
       finalAudioPath,  // Use mixed audio (or voiceover-only if no music)
       config.outputVideoPath,
-      voiceoverDuration,
+      videoDuration,   // Use actual final audio duration
       true,  // isVoiceover = true (since we're providing pre-mixed audio, not background music)
       (message: string, progress: number) => {
         // Update compose video step with FFmpeg progress
@@ -286,7 +337,7 @@ export async function executePipeline(
 
     steps[4].status = 'completed'
     steps[4].progress = 100
-    steps[4].message = `Video composition completed: ${path.basename(videoResult.path)} (${voiceoverDuration}s)`
+    steps[4].message = `Video composition completed: ${path.basename(videoResult.path)} (${videoDuration}s)`
     onProgress?.(steps[4])
 
     result.videoPath = videoResult.path
@@ -300,10 +351,20 @@ export async function executePipeline(
 
     logger.info(`Generating thumbnail for: "${config.storyTitle}"`)
 
+    // Check if there's a previous thumbnail in the same folder to use as reference
+    // This helps maintain visual consistency for multi-chapter stories
+    let thumbnailReference = config.referenceImagePath
+    const previousThumbnailPath = config.outputThumbnailPath
+    if (fs.existsSync(previousThumbnailPath)) {
+      logger.info(`📖 Previous thumbnail found - using as reference for consistency`)
+      thumbnailReference = previousThumbnailPath
+    }
+
     const thumbnailResult = await generateModernOrientalThumbnail(
       config.avatarImagePath,
       config.storyTitle,
-      config.outputThumbnailPath
+      config.outputThumbnailPath,
+      thumbnailReference
     )
 
     steps[5].status = 'completed'
@@ -365,14 +426,18 @@ export async function executePipeline(
     // Save results to database
     if (projectId) {
       try {
-        // Save voiceover info
+        // Save voiceover info with actual duration
         if (result.voiceoverPath) {
-          await saveConversionInfo(projectId, result.voiceoverPath, 0)
+          const voiceoverDuration = await getAudioDuration(result.voiceoverPath)
+          await saveConversionInfo(projectId, result.voiceoverPath, voiceoverDuration)
+          logger.info(`💾 Saved voiceover: ${voiceoverDuration}s`)
         }
 
-        // Save output video and thumbnail info
+        // Save output video and thumbnail info with actual duration
         if (result.videoPath) {
-          await saveOutputInfo(projectId, result.videoPath, result.thumbnailPath)
+          const videoDuration = await getAudioDuration(result.videoPath)
+          await saveOutputInfo(projectId, result.videoPath, result.thumbnailPath, undefined, videoDuration)
+          logger.info(`💾 Saved video output: ${videoDuration}s`)
         }
 
         // Update project status to completed

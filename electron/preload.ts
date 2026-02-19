@@ -5,7 +5,10 @@ import type { ElectronAPI, PipelineConfig, PipelineProgress, AppSettings } from 
 const api: ElectronAPI = {
   // File operations
   selectFolder: () => ipcRenderer.invoke('select-folder'),
-  openFile: (path: string) => ipcRenderer.invoke('open-file', path),
+  openFile: (filePath: string) => ipcRenderer.invoke('open-file', filePath),
+  openPath: (folderPath: string) => ipcRenderer.invoke('open-path', folderPath),
+  getVideoDuration: (filePath: string) => ipcRenderer.invoke('get-video-duration', filePath),
+  getNextVideoFolder: () => ipcRenderer.invoke('get-next-video-folder'),
 
   // Pipeline operations
   startPipeline: (config: PipelineConfig) => ipcRenderer.invoke('start-pipeline', config),
@@ -52,11 +55,3 @@ const api: ElectronAPI = {
 
 // Expose the API to the renderer process
 contextBridge.exposeInMainWorld('api', api)
-
-// Expose shell.openPath for opening folders
-contextBridge.exposeInMainWorld('shell', {
-  openPath: (path: string) => {
-    const { shell } = require('electron')
-    return shell.openPath(path)
-  },
-})

@@ -89,6 +89,7 @@ export async function initializeDatabase(): Promise<any> {
         project_id INTEGER NOT NULL,
         final_video_path TEXT,
         thumbnail_path TEXT,
+        duration INTEGER,
         youtube_id TEXT,
         status TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -277,13 +278,14 @@ export async function saveOutputInfo(
   projectId: number,
   finalVideoPath: string,
   thumbnailPath?: string,
-  youtubeId?: string
+  youtubeId?: string,
+  duration?: number
 ): Promise<number> {
   await initializeDatabase()
   const result = executeUpdate(
-    `INSERT INTO outputs (project_id, final_video_path, thumbnail_path, youtube_id, status)
-     VALUES (?, ?, ?, ?, 'created')`,
-    [projectId, finalVideoPath, thumbnailPath || null, youtubeId || null]
+    `INSERT INTO outputs (project_id, final_video_path, thumbnail_path, duration, youtube_id, status)
+     VALUES (?, ?, ?, ?, ?, 'created')`,
+    [projectId, finalVideoPath, thumbnailPath || null, duration || null, youtubeId || null]
   )
   await saveDatabaseToDisk()
   return result.lastID

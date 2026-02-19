@@ -96,6 +96,7 @@ export interface PipelineConfig {
   cookingVideoPath: string        // Cooking video file path (fallback if no Douyin URL)
   backgroundMusicPath: string     // bg-music.m4a
   avatarImagePath: string         // avatar.png for thumbnail style
+  referenceImagePath?: string     // Optional: Story cover/reference image for thumbnail visual style
 
   // Output paths
   outputVideoPath: string
@@ -106,6 +107,7 @@ export interface PipelineConfig {
   uploadToYoutube?: boolean       // Whether to upload after generation
   youtubeAccessToken?: string     // OAuth token for YouTube
   douyinUrl?: string              // Optional: Douyin video URL to download
+  resumeOnExist?: boolean         // Skip steps if intermediate files exist (mixed_audio, voiceover, final_video)
 }
 
 // Pipeline progress event
@@ -182,6 +184,9 @@ export interface ProjectHistory {
 export interface ElectronAPI {
   selectFolder(): Promise<string>
   openFile(path: string): Promise<void>
+  openPath(folderPath: string): Promise<string>
+  getVideoDuration(filePath: string): Promise<string>
+  getNextVideoFolder(): Promise<{ folderPath: string; videoNum: number }>
   startPipeline(config: PipelineConfig): Promise<PipelineResult>
   cancelPipeline(): Promise<void>
   getPipelineProgress(): Promise<PipelineProgress>
@@ -197,14 +202,8 @@ export interface ElectronAPI {
   onAppLog(callback: (log: { timestamp: string; level: string; module: string; message: string }) => void): () => void
 }
 
-// Shell API for file operations
-export interface ShellAPI {
-  openPath(path: string): Promise<string>
-}
-
 declare global {
   interface Window {
     api: ElectronAPI
-    shell: ShellAPI
   }
 }

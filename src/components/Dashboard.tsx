@@ -1,6 +1,88 @@
 import { useState, useEffect, useRef } from 'react'
 import './Dashboard.css'
 
+// Helper function to extract and format chapter information from story text
+function extractChapterInfo(storyText: string): {
+  baseTitle: string
+  displayTitle: string
+  chapterNumbers: number[]
+} {
+  const lines = storyText.split('\n').map(l => l.trim()).filter(l => l)
+  const firstLine = lines[0] || ''
+
+  // Try to extract base title and chapter number from first line
+  // Patterns: "Tiêu đề - Chương 1", "Tiêu đề Chương 1", "Chương 1: Tiêu đề", "Tiêu đề (chương 1 và 2)"
+  let baseTitle = firstLine
+  let chapterNumbers: number[] = []
+
+  // Pattern 1: "Chương N: Title" or "Chương N - Title" (at start)
+  const pattern1 = /^Chương\s+(\d+)[\s:-]/i
+  const match1 = firstLine.match(pattern1)
+  if (match1) {
+    const chapterNum = parseInt(match1[1])
+    chapterNumbers.push(chapterNum)
+    baseTitle = firstLine.replace(/^Chương\s+\d+[\s:-]/i, '').trim()
+  } else {
+    // Pattern 2: "Title (chương N và M)" or "Title (chương N, M)" - parenthetical format
+    const pattern2 = /(.+?)\s*\(\s*chương\s+(.+?)\s*\)/i
+    const match2 = firstLine.match(pattern2)
+    if (match2) {
+      baseTitle = match2[1].trim()
+      // Extract numbers from the parenthetical content (e.g., "1 và 2" or "1, 2" or "1-2")
+      const chaptersStr = match2[2]
+      const numbers = chaptersStr.match(/\d+/g) || []
+      numbers.forEach(num => {
+        const chapterNum = parseInt(num)
+        if (!chapterNumbers.includes(chapterNum)) {
+          chapterNumbers.push(chapterNum)
+        }
+      })
+    } else {
+      // Pattern 3: "Title - Chương N" or "Title Chương N" (at end, non-parenthetical)
+      // Use word boundary to ensure we match "Chương" as a word
+      const pattern3 = /(.+?)[\s-]*\bChương\s+(\d+)\b/i
+      const match3 = firstLine.match(pattern3)
+      if (match3) {
+        baseTitle = match3[1].trim()
+        chapterNumbers.push(parseInt(match3[2]))
+      }
+    }
+  }
+
+  // Look for more chapter numbers in the content
+  const fullText = storyText.toLowerCase()
+  const chaptersInContent = fullText.match(/\bchương\s+(\d+)\b/gi) || []
+  const uniqueChapters = new Set<number>()
+  chaptersInContent.forEach(ch => {
+    const num = parseInt(ch.match(/\d+/)![0])
+    uniqueChapters.add(num)
+  })
+
+  // Merge found chapters
+  uniqueChapters.forEach(num => {
+    if (!chapterNumbers.includes(num)) {
+      chapterNumbers.push(num)
+    }
+  })
+
+  // Sort chapter numbers
+  chapterNumbers.sort((a, b) => a - b)
+
+  // Format display title
+  let displayTitle = baseTitle
+  if (chapterNumbers.length > 0) {
+    if (chapterNumbers.length === 1) {
+      displayTitle = `${baseTitle} - Chương ${chapterNumbers[0]}`
+    } else if (chapterNumbers.length === 2) {
+      displayTitle = `${baseTitle} - Chương ${chapterNumbers[0]}-${chapterNumbers[1]}`
+    } else {
+      displayTitle = `${baseTitle} - Chương ${chapterNumbers[0]}-${chapterNumbers[chapterNumbers.length - 1]}`
+    }
+  }
+
+  return { baseTitle, displayTitle, chapterNumbers }
+}
+
 // Helper function to extract Douyin URL from pasted text
 function extractDouyinUrlFromText(text: string): string | null {
   if (!text || !text.trim()) return null
@@ -19,32 +101,6 @@ function extractDouyinUrlFromText(text: string): string | null {
   return null
 }
 
-// Helper function to get next video number and output folder
-async function getNextVideoFolder(): Promise<{ folderPath: string; videoNum: number }> {
-  const baseOutputPath = 'C:\\dev\\audiobook-uploader\\output'
-
-  // Find highest existing vid_X folder
-  let maxNum = 0
-  try {
-    const fs = await import('fs')
-    if (fs.existsSync(baseOutputPath)) {
-      const files = fs.readdirSync(baseOutputPath)
-      for (const file of files) {
-        const match = file.match(/^vid_(\d+)$/)
-        if (match) {
-          const num = parseInt(match[1], 10)
-          if (num > maxNum) maxNum = num
-        }
-      }
-    }
-  } catch (error) {
-    console.warn('Could not read output directory:', error)
-  }
-
-  const nextNum = maxNum + 1
-  const folderPath = `${baseOutputPath}\\vid_${nextNum}`
-  return { folderPath, videoNum: nextNum }
-}
 
 interface EnvConfig {
   VBEE_API_KEY?: string
@@ -94,6 +150,9 @@ export function Dashboard() {
 
   const [envConfig, setEnvConfig] = useState<EnvConfig>({})
   const [history, setHistory] = useState<Project[]>([])
+
+  // Persist logs at dashboard level so they don't get cleared when switching tabs
+  const [persistedLogs, setPersistedLogs] = useState<string[]>([])
 
   // Load environment variables when component mounts
   useEffect(() => {
@@ -150,7 +209,13 @@ export function Dashboard() {
       {/* Content Area */}
       <div className="content-area">
         {activeTab === 'home' && (
-          <HomeTab state={homeTabState} setState={setHomeTabState} onSuccess={loadHistory} />
+          <HomeTab
+            state={homeTabState}
+            setState={setHomeTabState}
+            onSuccess={loadHistory}
+            persistedLogs={persistedLogs}
+            setPersistedLogs={setPersistedLogs}
+          />
         )}
         {activeTab === 'settings' && (
           <SettingsTab
@@ -175,14 +240,17 @@ function HomeTab({
   state,
   setState,
   onSuccess,
+  persistedLogs,
+  setPersistedLogs,
 }: {
   state: HomeTabState
   setState: (state: HomeTabState) => void
   onSuccess: () => void
+  persistedLogs: string[]
+  setPersistedLogs: (logs: string[] | ((prev: string[]) => string[])) => void
 }) {
   const [isProcessing, setIsProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
-  const [logs, setLogs] = useState<string[]>([])
   const logsContainerRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll logs to bottom when new logs are added
@@ -190,9 +258,9 @@ function HomeTab({
     if (logsContainerRef.current) {
       logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight
     }
-  }, [logs])
+  }, [persistedLogs])
 
-  // Setup global log listener when component mounts
+  // Setup global log listener when component mounts (only once)
   useEffect(() => {
     const unsubscribe = window.api?.onAppLog?.((log) => {
       const levelEmoji = {
@@ -202,13 +270,14 @@ function HomeTab({
         debug: '⚪',
       }[log.level] || '⚪'
       const formattedLog = `${levelEmoji} [${log.timestamp.split('T')[1].split('.')[0]}] [${log.module}] ${log.message}`
-      setLogs(prev => [...prev, formattedLog])
+      // Use functional update to avoid dependency on persistedLogs
+      setPersistedLogs((prev: string[]) => [...prev, formattedLog])
     })
     return () => unsubscribe?.()
-  }, [])
+  }, []) // Empty deps - only setup once on mount
 
   const addLog = (message: string) => {
-    setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${message}`])
+    setPersistedLogs((prev: string[]) => [...prev, `[${new Date().toLocaleTimeString()}] ${message}`])
   }
 
   const handleCreateAudiobook = async () => {
@@ -219,17 +288,24 @@ function HomeTab({
 
     setIsProcessing(true)
     setProgress(0)
-    setLogs([])
+    setPersistedLogs([]) // Clear logs for fresh start (but persisted in parent state)
 
     try {
       addLog('Bắt đầu quy trình tạo audiobook...')
 
-      // Extract project name from first line of story
-      const projectName = state.storyText.split('\n')[0].trim() || 'Untitled'
+      // Extract chapter information from story text
+      const chapterInfo = extractChapterInfo(state.storyText)
+      const projectName = chapterInfo.displayTitle || 'Untitled'
+      console.log(`📚 Story Info:`, chapterInfo)
+      addLog(`📚 Tiêu đề: ${projectName}`)
+      if (chapterInfo.chapterNumbers.length > 0) {
+        addLog(`📖 Chương: ${chapterInfo.chapterNumbers.join(', ')}`)
+      }
 
-      // Get next video folder (vid_1, vid_2, etc.)
-      const { folderPath } = await getNextVideoFolder()
+      // Get next video folder (vid_1, vid_2, etc.) - uses main process to access filesystem
+      const { folderPath } = await window.api?.getNextVideoFolder?.() || { folderPath: 'C:\\dev\\audiobook-uploader\\output\\vid_1' }
       console.log(`📁 Output folder: ${folderPath}`)
+      addLog(`📁 Sử dụng thư mục: ${folderPath}`)
 
       // Listen for progress updates from Electron main process
       const unsubscribe = window.api?.onPipelineProgress?.((step) => {
@@ -249,6 +325,7 @@ function HomeTab({
         cookingVideoPath: 'C:\\dev\\audiobook-uploader\\input\\video\\douyin_video.mp4', // Fallback video
         backgroundMusicPath: 'C:\\dev\\audiobook-uploader\\input\\music\\bg-music.m4a',
         avatarImagePath: 'C:\\dev\\audiobook-uploader\\input\\image\\avatar.png',
+        referenceImagePath: 'C:\\dev\\audiobook-uploader\\input\\image\\reference_2.jpg', // Story cover reference for thumbnail
 
         // Output paths (organized by video number: vid_1, vid_2, etc.)
         outputVideoPath: `${folderPath}\\final_video.mp4`,
@@ -258,6 +335,7 @@ function HomeTab({
         videoDuration: 60,
         uploadToYoutube: false, // Disabled for now (requires YouTube auth)
         douyinUrl: state.douyinUrl || undefined, // Pass Douyin URL if provided
+        resumeOnExist: true, // Skip steps if files already exist
       })
 
       console.log('📱 UI: Received result from IPC handler:', result)
@@ -381,11 +459,11 @@ function HomeTab({
         </div>
       )}
 
-      {logs.length > 0 && (
+      {persistedLogs.length > 0 && (
         <div className="logs-section">
-          <h3>Nhật Ký ({logs.length} entries)</h3>
+          <h3>Nhật Ký ({persistedLogs.length} entries)</h3>
           <div className="logs-container" ref={logsContainerRef}>
-            {logs.map((log, idx) => (
+            {persistedLogs.map((log: string, idx: number) => (
               <div key={idx} className="log-line">
                 {log}
               </div>
@@ -498,6 +576,15 @@ function SettingsTab({
 }
 
 function HistoryTab({ projects }: { projects: Project[] }) {
+  const handleOpenFolder = async (outputPath: string) => {
+    try {
+      await window.api?.openPath?.(outputPath)
+    } catch (error) {
+      console.error('Failed to open folder:', error)
+      alert('Không thể mở thư mục: ' + (error instanceof Error ? error.message : String(error)))
+    }
+  }
+
   return (
     <div className="history-tab">
       <h2>Lịch Sử Tạo Audiobook</h2>
@@ -524,7 +611,7 @@ function HistoryTab({ projects }: { projects: Project[] }) {
                 <td>{item.duration}</td>
                 <td>{item.status === 'completed' ? '✅ Hoàn thành' : '❌ Thất bại'}</td>
                 <td>
-                  <button className="btn-small" onClick={() => window.shell?.openPath(item.outputPath)}>
+                  <button className="btn-small" onClick={() => handleOpenFolder(item.outputPath)}>
                     📁 Mở Thư Mục
                   </button>
                 </td>
