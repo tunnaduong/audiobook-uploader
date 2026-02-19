@@ -25,12 +25,15 @@
     "decompress": "^4.2.1",
     "dotenv": "^16.6.1",
     "get-audio-duration": "^4.0.1",
+    "google-auth-library": "^10.5.0",
     "https-proxy-agent": "^7.0.2",
+    "keytar": "^7.9.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "sql.js": "^1.8.0"
   },
   "devDependencies": {
+    "@types/keytar": "^4.4.0",
     "@types/node": "^20.10.0",
     "@types/react": "^18.2.33",
     "@types/react-dom": "^18.2.14",

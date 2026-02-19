@@ -129,6 +129,9 @@ interface SettingsTabState {
   appId: string
   youtubeKey: string
   outputDir: string
+  youtubeUploadByDefault?: boolean
+  youtubeVisibility?: 'public' | 'private' | 'unlisted'
+  youtubeCategory?: number
 }
 
 export function Dashboard() {
@@ -146,10 +149,15 @@ export function Dashboard() {
     appId: '',
     youtubeKey: '',
     outputDir: './output',
+    youtubeUploadByDefault: false,
+    youtubeVisibility: 'public',
+    youtubeCategory: 24,
   })
 
   const [envConfig, setEnvConfig] = useState<EnvConfig>({})
   const [history, setHistory] = useState<Project[]>([])
+  const [youtubeAuthenticating, setYoutubeAuthenticating] = useState(false)
+  const [youtubeAuthenticated, setYoutubeAuthenticated] = useState(false)
 
   // Persist logs at dashboard level so they don't get cleared when switching tabs
   const [persistedLogs, setPersistedLogs] = useState<string[]>([])
@@ -158,6 +166,7 @@ export function Dashboard() {
   useEffect(() => {
     loadEnvConfig()
     loadHistory()
+    loadYouTubeSettings()
   }, [])
 
   const loadEnvConfig = async () => {
@@ -179,6 +188,56 @@ export function Dashboard() {
       }
     } catch (error) {
       console.error('Failed to load project history:', error)
+    }
+  }
+
+  const loadYouTubeSettings = async () => {
+    try {
+      const settings = await window.api?.getYouTubeSettings?.()
+      if (settings) {
+        setYoutubeAuthenticated(settings.isAuthenticated)
+        setSettingsTabState((prev) => ({
+          ...prev,
+          youtubeUploadByDefault: settings.uploadByDefault,
+          youtubeVisibility: settings.videoVisibility,
+          youtubeCategory: settings.defaultCategory,
+        }))
+      }
+    } catch (error) {
+      console.error('Failed to load YouTube settings:', error)
+    }
+  }
+
+  const handleYouTubeLogin = async () => {
+    setYoutubeAuthenticating(true)
+    try {
+      const result = await window.api?.youtubeLogin?.()
+      if (result?.success) {
+        setYoutubeAuthenticated(true)
+        alert(`✅ YouTube account connected: ${result.channelTitle}`)
+      } else {
+        alert(`❌ YouTube login failed: ${result?.error || 'Unknown error'}`)
+      }
+    } catch (error) {
+      console.error('Failed to authenticate with YouTube:', error)
+      alert(`❌ Error: ${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setYoutubeAuthenticating(false)
+    }
+  }
+
+  const handleYouTubeLogout = async () => {
+    try {
+      const result = await window.api?.youtubeLogout?.()
+      if (result?.success) {
+        setYoutubeAuthenticated(false)
+        alert('✅ YouTube account disconnected')
+      } else {
+        alert(`❌ Logout failed: ${result?.error}`)
+      }
+    } catch (error) {
+      console.error('Failed to logout from YouTube:', error)
+      alert(`❌ Error: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
@@ -215,6 +274,7 @@ export function Dashboard() {
             onSuccess={loadHistory}
             persistedLogs={persistedLogs}
             setPersistedLogs={setPersistedLogs}
+            youtubeAuthenticated={youtubeAuthenticated}
           />
         )}
         {activeTab === 'settings' && (
@@ -222,6 +282,10 @@ export function Dashboard() {
             state={settingsTabState}
             setState={setSettingsTabState}
             envConfig={envConfig}
+            youtubeAuthenticated={youtubeAuthenticated}
+            youtubeAuthenticating={youtubeAuthenticating}
+            onYouTubeLogin={handleYouTubeLogin}
+            onYouTubeLogout={handleYouTubeLogout}
           />
         )}
         {activeTab === 'history' && <HistoryTab projects={history} />}
@@ -242,15 +306,18 @@ function HomeTab({
   onSuccess,
   persistedLogs,
   setPersistedLogs,
+  youtubeAuthenticated,
 }: {
   state: HomeTabState
   setState: (state: HomeTabState) => void
   onSuccess: () => void
   persistedLogs: string[]
   setPersistedLogs: (logs: string[] | ((prev: string[]) => string[])) => void
+  youtubeAuthenticated: boolean
 }) {
   const [isProcessing, setIsProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
+  const [uploadToYoutube, setUploadToYoutube] = useState(false)
   const logsContainerRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll logs to bottom when new logs are added
@@ -333,7 +400,7 @@ function HomeTab({
 
         // Settings
         videoDuration: 60,
-        uploadToYoutube: false, // Disabled for now (requires YouTube auth)
+        uploadToYoutube: uploadToYoutube && youtubeAuthenticated,
         douyinUrl: state.douyinUrl || undefined, // Pass Douyin URL if provided
         resumeOnExist: true, // Skip steps if files already exist
       })
@@ -442,6 +509,26 @@ function HomeTab({
         </div>
       </div>
 
+      <div className="form-section">
+        <h3>⚙️ Upload Options</h3>
+        <div className="form-group">
+          <label>
+            <input
+              type="checkbox"
+              checked={uploadToYoutube}
+              onChange={(e) => setUploadToYoutube(e.target.checked)}
+              disabled={!youtubeAuthenticated || isProcessing}
+            />
+            <span> 🎬 Upload to YouTube</span>
+          </label>
+          {!youtubeAuthenticated && (
+            <div className="form-info">
+              Connect YouTube in Settings to enable auto-upload
+            </div>
+          )}
+        </div>
+      </div>
+
       <button
         className="btn-primary"
         onClick={handleCreateAudiobook}
@@ -479,10 +566,18 @@ function SettingsTab({
   state,
   setState,
   envConfig,
+  youtubeAuthenticated,
+  youtubeAuthenticating,
+  onYouTubeLogin,
+  onYouTubeLogout,
 }: {
   state: SettingsTabState
   setState: (state: SettingsTabState) => void
   envConfig: EnvConfig
+  youtubeAuthenticated: boolean
+  youtubeAuthenticating: boolean
+  onYouTubeLogin: () => void
+  onYouTubeLogout: () => void
 }) {
   const handleSaveSettings = () => {
     alert('Cài đặt đã được lưu!')
@@ -490,6 +585,87 @@ function SettingsTab({
 
   return (
     <div className="settings-tab">
+      <div className="settings-group">
+        <h3>🎬 YouTube Upload Settings</h3>
+        {youtubeAuthenticated ? (
+          <>
+            <div className="form-group">
+              <p className="form-info" style={{ color: '#27ae60', fontSize: '16px' }}>
+                ✅ Connected to YouTube
+              </p>
+            </div>
+            <div className="form-group">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={state.youtubeUploadByDefault || false}
+                  onChange={(e) =>
+                    setState({ ...state, youtubeUploadByDefault: e.target.checked })
+                  }
+                />
+                <span> Auto-upload videos after creation</span>
+              </label>
+            </div>
+            <div className="form-group">
+              <label>Video Visibility:</label>
+              <select
+                className="form-input"
+                value={state.youtubeVisibility || 'public'}
+                onChange={(e) =>
+                  setState({
+                    ...state,
+                    youtubeVisibility: e.target.value as 'public' | 'private' | 'unlisted',
+                  })
+                }
+              >
+                <option value="public">🌍 Public (anyone can find)</option>
+                <option value="unlisted">🔗 Unlisted (share link only)</option>
+                <option value="private">🔒 Private (only me)</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Category:</label>
+              <select
+                className="form-input"
+                value={state.youtubeCategory || 24}
+                onChange={(e) =>
+                  setState({ ...state, youtubeCategory: parseInt(e.target.value) })
+                }
+              >
+                <option value="24">Entertainment</option>
+                <option value="26">Howto & Style</option>
+                <option value="20">Short Movies</option>
+                <option value="27">Education</option>
+              </select>
+            </div>
+            <button
+              className="btn-primary"
+              onClick={onYouTubeLogout}
+              style={{ backgroundColor: '#e74c3c' }}
+            >
+              🔓 Disconnect YouTube
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="form-group">
+              <p className="form-info" style={{ fontSize: '16px' }}>
+                Connect your YouTube account to enable auto-upload
+              </p>
+            </div>
+            <button
+              className="btn-primary"
+              onClick={onYouTubeLogin}
+              disabled={youtubeAuthenticating}
+              style={{ backgroundColor: '#e74c3c' }}
+            >
+              {youtubeAuthenticating ? '🔄 Connecting...' : '🔐 Sign in with Google'}
+            </button>
+            <p className="form-info">You'll be directed to Google's login page. No password stored locally.</p>
+          </>
+        )}
+      </div>
+
       <div className="settings-group">
         <h3>Vbee TTS API</h3>
         <div className="form-group">

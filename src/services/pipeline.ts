@@ -17,6 +17,8 @@ import { uploadVideo } from './youtube'
 import { convertTextToSpeech } from './vbee'
 import { downloadDouyinVideo, isValidDouyinUrl } from './douyin'
 import { createProject, updateProjectStatus, saveConversionInfo, saveOutputInfo } from '../utils/database'
+import { getYouTubeTokens, saveYouTubeTokens, YouTubeOAuthManager } from './youtube-auth'
+import { getOAuthConfig } from '../utils/youtube-oauth'
 import type { YouTubeUploadResult } from '../types'
 
 const logger = createLogger('pipeline-service')
@@ -401,7 +403,7 @@ export async function executePipeline(
     logger.info(`Thumbnail created: ${thumbnailResult.path}`)
 
     // Step 7: Upload to YouTube (optional)
-    if (config.uploadToYoutube && config.youtubeAccessToken) {
+    if (config.uploadToYoutube) {
       logger.info('Step 7: Uploading to YouTube')
       steps[6].status = 'in_progress'
       steps[6].progress = 10
@@ -410,6 +412,32 @@ export async function executePipeline(
       logger.info('Preparing YouTube upload...')
 
       try {
+        // Get or refresh access token
+        let accessToken = config.youtubeAccessToken
+
+        if (!accessToken) {
+          // Try to load saved tokens from secure storage
+          logger.info('🔑 Loading YouTube tokens from secure storage...')
+          const savedTokens = await getYouTubeTokens()
+
+          if (savedTokens) {
+            // Ensure token is still valid (refresh if expired)
+            const oauthConfig = getOAuthConfig()
+            const oauthManager = new YouTubeOAuthManager(oauthConfig)
+            const validTokens = await oauthManager.ensureValidToken(savedTokens)
+
+            // Save refreshed token if it was updated
+            if (validTokens.accessToken !== savedTokens.accessToken) {
+              await saveYouTubeTokens(validTokens)
+            }
+
+            accessToken = validTokens.accessToken
+            logger.info('✅ YouTube access token refreshed and validated')
+          } else {
+            throw new Error('No YouTube access token available. Please authenticate in Settings.')
+          }
+        }
+
         const youtubeResult = await uploadVideo(
           result.videoPath!,
           {
@@ -418,7 +446,8 @@ export async function executePipeline(
             tags: ['audiobook', 'cooking', 'story', 'vietnam'],
             visibility: 'public',
           },
-          config.youtubeAccessToken
+          accessToken,
+          result.thumbnailPath // Include thumbnail if available
         )
 
         steps[6].status = 'completed'
@@ -430,11 +459,12 @@ export async function executePipeline(
         logger.info(`YouTube upload completed: ${youtubeResult.videoId}`)
       } catch (error) {
         logger.error('YouTube upload failed', error)
-        steps[6].status = 'failed'
+        steps[6].status = 'completed' // Mark as completed even if upload fails (optional step)
         steps[6].progress = 100
         steps[6].error = error instanceof Error ? error.message : 'Unknown error - YouTube Upload'
+        steps[6].message = `YouTube upload failed: ${steps[6].error}`
         onProgress?.(steps[6])
-        // Don't fail the entire pipeline if YouTube upload fails
+        // Don't fail the entire pipeline if YouTube upload fails - it's optional
       }
     } else {
       logger.info('YouTube upload skipped (not configured)')

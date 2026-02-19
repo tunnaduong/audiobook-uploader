@@ -30,6 +30,12 @@ const api: ElectronAPI = {
   getEnvConfig: () => ipcRenderer.invoke('get-env-config'),
   getProjectHistory: () => ipcRenderer.invoke('get-project-history'),
 
+  // YouTube OAuth
+  youtubeLogin: () => ipcRenderer.invoke('youtube-login'),
+  youtubeLogout: () => ipcRenderer.invoke('youtube-logout'),
+  getYouTubeSettings: () => ipcRenderer.invoke('get-youtube-settings'),
+  updateYouTubeSettings: (settings) => ipcRenderer.invoke('update-youtube-settings', settings),
+
   // Event listeners
   onPipelineProgress: (callback: (progress: PipelineProgress) => void) => {
     const listener = (_event: IpcRendererEvent, progress: PipelineProgress) => callback(progress)
