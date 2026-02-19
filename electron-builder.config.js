@@ -1,47 +1,87 @@
-/**
- * @type {import('electron-builder').Configuration}
- * @see https://www.electron.build/configuration/configuration
- */
-const config = {
-  appId: 'com.audiobook.uploader',
+module.exports = {
+  appId: 'com.audiobook-uploader.app',
   productName: 'Audiobook Uploader',
+  version: '0.1.0',
+
+  // Files to include in the build
   files: [
-    'dist/electron/**/*',
+    'dist/electron/**/*.js',
     'dist/renderer/**/*',
     'package.json',
     'node_modules/**/*',
   ],
+
   directories: {
     buildResources: 'public',
-    output: 'release',
+    output: 'dist/release',
   },
+
+  // Windows build configuration
   win: {
     target: [
       {
-        target: 'nsis',
-        arch: ['x64', 'ia32'],
+        target: 'nsis',      // NSIS installer
+        arch: ['x64'],
       },
       {
-        target: 'portable',
-        arch: ['x64', 'ia32'],
+        target: 'portable',  // Portable EXE (no installation)
+        arch: ['x64'],
       },
     ],
-    certificateFile: process.env.WIN_CSC_LINK,
-    certificatePassword: process.env.WIN_CSC_KEY_PASSWORD,
+    certificateFile: null,
+    certificatePassword: null,
   },
+
   nsis: {
     oneClick: false,
     allowToChangeInstallationDirectory: true,
     createDesktopShortcut: true,
     createStartMenuShortcut: true,
+    shortcutName: 'Audiobook Uploader',
+    installerIcon: 'public/icon.png',
+    uninstallerIcon: 'public/icon.png',
+    installerHeaderIcon: 'public/icon.png',
   },
-  mac: {
-    target: ['dmg', 'zip'],
-    category: 'public.app-category.productivity',
-  },
-  dmg: {
-    sign: false,
-  },
-};
 
-module.exports = config;
+  // macOS build configuration
+  mac: {
+    target: [
+      {
+        target: 'dmg',    // DMG installer
+        arch: ['x64', 'arm64'],
+      },
+      {
+        target: 'zip',    // ZIP archive
+        arch: ['x64', 'arm64'],
+      },
+    ],
+    category: 'public.app-category.utilities',
+    icon: 'public/icon.png',
+    signingIdentity: null,
+  },
+
+  dmg: {
+    contents: [
+      {
+        x: 110,
+        y: 150,
+        type: 'file',
+      },
+      {
+        x: 240,
+        y: 150,
+        type: 'link',
+        path: '/Applications',
+      },
+    ],
+    window: {
+      width: 400,
+      height: 300,
+    },
+  },
+
+  // Common build options
+  artifactName: '${productName}-${version}-${arch}.${ext}',
+  generateUpdatesFilesForAllChannels: false,
+  publish: null,
+};
