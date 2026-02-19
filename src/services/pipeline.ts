@@ -15,6 +15,7 @@ import { generateModernOrientalThumbnail } from './gemini'
 import { uploadVideo } from './youtube'
 import { convertTextToSpeech } from './vbee'
 import { downloadDouyinVideo, isValidDouyinUrl } from './douyin'
+import { createProject, updateProjectStatus, saveConversionInfo, saveOutputInfo } from '../utils/database'
 import type { YouTubeUploadResult } from '../types'
 
 const logger = createLogger('pipeline-service')
@@ -67,6 +68,17 @@ export async function executePipeline(
   const result: PipelineResult = {
     success: false,
     steps: [],
+  }
+
+  // Create project in database at the start
+  let projectId: number | null = null
+  try {
+    projectId = await createProject(config.storyTitle, config.storyText)
+    logger.info(`📝 Created project in database: ID ${projectId}`)
+    await updateProjectStatus(projectId, 'processing', 0)
+  } catch (dbError) {
+    logger.warn(`⚠️ Failed to create project in database: ${dbError}`)
+    // Continue pipeline even if database fails
   }
 
   const steps: PipelineStep[] = [
@@ -350,6 +362,28 @@ export async function executePipeline(
     result.steps = steps
     result.success = true
 
+    // Save results to database
+    if (projectId) {
+      try {
+        // Save voiceover info
+        if (result.voiceoverPath) {
+          await saveConversionInfo(projectId, result.voiceoverPath, 0)
+        }
+
+        // Save output video and thumbnail info
+        if (result.videoPath) {
+          await saveOutputInfo(projectId, result.videoPath, result.thumbnailPath)
+        }
+
+        // Update project status to completed
+        await updateProjectStatus(projectId, 'completed', 100)
+        logger.info(`✅ Project ${projectId} saved to database`)
+      } catch (dbError) {
+        logger.warn(`⚠️ Failed to save project results to database: ${dbError}`)
+        // Continue even if database save fails
+      }
+    }
+
     logger.info('✅ Pipeline completed successfully')
     return result
   } catch (error) {
@@ -367,6 +401,16 @@ export async function executePipeline(
     result.steps = steps
     result.success = false
     result.error = errorMessage
+
+    // Update project status to failed in database
+    if (projectId) {
+      try {
+        await updateProjectStatus(projectId, 'failed', 0, errorMessage)
+        logger.info(`❌ Project ${projectId} marked as failed in database`)
+      } catch (dbError) {
+        logger.warn(`⚠️ Failed to update project status in database: ${dbError}`)
+      }
+    }
 
     return result
   }

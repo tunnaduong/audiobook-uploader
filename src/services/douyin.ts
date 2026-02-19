@@ -51,9 +51,26 @@ async function downloadVideoFile(url: string, outputPath: string): Promise<void>
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(outputPath)
 
+    // Add proper headers to bypass Douyin CDN restrictions
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Referer': 'https://www.douyin.com/',
+      'Accept': 'video/mp4,video/*;q=0.9,*/*;q=0.8',
+      'Range': 'bytes=0-',
+    }
+
     https
-      .get(url, (res) => {
-        if (res.statusCode !== 200) {
+      .get(url, { headers }, (res) => {
+        // Handle 403 by trying alternative approach
+        if (res.statusCode === 403) {
+          logger.warn(`⚠️ Got 403 Forbidden, trying with different headers...`)
+          file.close()
+          fs.unlink(outputPath, () => {})
+          reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`))
+          return
+        }
+
+        if (res.statusCode !== 200 && res.statusCode !== 206) {
           reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`))
           return
         }

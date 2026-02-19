@@ -50,3 +50,4 @@ output/
 .audiobook-uploader/
 *.db
 logs/
+/input

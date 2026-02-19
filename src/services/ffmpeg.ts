@@ -1,4 +1,4 @@
-import { exec } from 'child_process'
+import { exec, spawn } from 'child_process'
 import { promisify } from 'util'
 import { createLogger } from '../utils/logger'
 import { getFFmpegPath } from '../utils/ffmpeg-setup'
@@ -78,7 +78,7 @@ async function getVideoEncoder(): Promise<{ codec: string; options: string[] }> 
     }
     return cachedEncoder
   } else if (platform === 'win32') {
-    // Windows - try hardware encoders in order: NVENC > Intel QSV > libx264
+    // Windows - try hardware encoders in order: Intel QSV (best for Intel CPUs) > NVENC > MediaFoundation > libx264
     const ffmpegPath = await getFFmpegPath()
 
     let availableEncoders = ''
@@ -89,9 +89,19 @@ async function getVideoEncoder(): Promise<{ codec: string; options: string[] }> 
       logger.debug('Could not detect available encoders')
     }
 
-    // Try NVIDIA NVENC first (fastest if available)
-    if (availableEncoders.includes('h264_nvenc') && availableEncoders.includes('nvenc')) {
-      logger.info('✅ Using NVIDIA NVENC (GPU encoding - fastest)')
+    // Try Intel Quick Sync FIRST (best for Intel CPUs - Pentium, Core, Xeon)
+    if (availableEncoders.includes('h264_qsv')) {
+      logger.info('✅ Using Intel Quick Sync (Best for Intel CPU)')
+      cachedEncoder = {
+        codec: 'h264_qsv',
+        options: ['-global_quality', '23', '-preset', 'faster'],
+      }
+      return cachedEncoder
+    }
+
+    // Try NVIDIA NVENC second (for NVIDIA GPU systems)
+    if (availableEncoders.includes('h264_nvenc')) {
+      logger.info('✅ Using NVIDIA NVENC (GPU encoding)')
       cachedEncoder = {
         codec: 'h264_nvenc',
         options: ['-preset', 'fast', '-rc', 'vbr', '-cq', '23'],
@@ -99,21 +109,21 @@ async function getVideoEncoder(): Promise<{ codec: string; options: string[] }> 
       return cachedEncoder
     }
 
-    // Try Intel Quick Sync second (common on Intel CPUs)
-    if (availableEncoders.includes('h264_qsv') && availableEncoders.includes('qsv')) {
-      logger.info('✅ Using Intel Quick Sync (GPU encoding - fast)')
+    // Try Windows MediaFoundation (fallback hardware acceleration)
+    if (availableEncoders.includes('h264_mf')) {
+      logger.info('✅ Using Windows MediaFoundation H.264 encoder')
       cachedEncoder = {
-        codec: 'h264_qsv',
-        options: ['-preset', 'fast', '-q:v', '23'],
+        codec: 'h264_mf',
+        options: ['-q:v', '23'],
       }
       return cachedEncoder
     }
 
     // Fallback to software encoding (slowest but always available)
-    logger.warn('⚠️ Using libx264 software encoding (slower) - GPU encoders not detected. Install GPU drivers for faster encoding.')
+    logger.warn('⚠️ Using libx264 software encoding (slower). Consider upgrading CPU or closing other apps for faster encoding.')
     cachedEncoder = {
       codec: 'libx264',
-      options: ['-preset', 'ultrafast', '-crf', '28'],  // Faster preset for software
+      options: ['-preset', 'ultrafast', '-crf', '28'],  // Fastest preset for software
     }
     return cachedEncoder
   } else {
@@ -167,26 +177,103 @@ export async function composeVideo(
     logger.debug(`Executing FFmpeg: ${command}`)
 
     // Execute FFmpeg
-    const { stderr } = await execAsync(command, {
-      maxBuffer: 50 * 1024 * 1024,
-      timeout: 600000, // 10 minutes
-    })
+    try {
+      const { stderr } = await execAsync(command, {
+        maxBuffer: 50 * 1024 * 1024,
+        timeout: 600000, // 10 minutes
+      })
 
-    if (stderr) {
-      logger.debug(`FFmpeg output: ${stderr}`)
-    }
+      if (stderr) {
+        logger.debug(`FFmpeg output: ${stderr}`)
+      }
 
-    logger.info(`Video composition completed: ${outputPath}`)
+      logger.info(`Video composition completed: ${outputPath}`)
 
-    return {
-      path: outputPath,
-      width: 1920,
-      height: 1080,
-      duration: 0, // Would need to extract from video info
-      fileSize: 0, // Would need to get actual file size
-      bitrate: '5000k',
-      codec: encoder.codec,
-      createdAt: new Date(),
+      return {
+        path: outputPath,
+        width: 1920,
+        height: 1080,
+        duration: 0, // Would need to extract from video info
+        fileSize: 0, // Would need to get actual file size
+        bitrate: '5000k',
+        codec: encoder.codec,
+        createdAt: new Date(),
+      }
+    } catch (ffmpegError) {
+      const errorMsg = ffmpegError instanceof Error ? ffmpegError.message : String(ffmpegError)
+
+      // If encoder failed (e.g., NVIDIA driver not found), retry with libx264
+      const isEncoderError =
+        errorMsg.includes('Cannot load nvcuda.dll') ||
+        errorMsg.includes('nvcuda.dll') ||
+        errorMsg.includes('h264_nvenc') ||
+        errorMsg.includes('h264_qsv') ||
+        (errorMsg.includes('Error while opening encoder') && encoder.codec !== 'libx264') ||
+        (errorMsg.includes('Operation not permitted') && encoder.codec !== 'libx264') ||
+        (errorMsg.includes('Conversion failed') && encoder.codec !== 'libx264')
+
+      if (isEncoderError && encoder.codec !== 'libx264') {
+        logger.warn(`⚠️ Encoder ${encoder.codec} failed: ${errorMsg.substring(0, 100)}`)
+        logger.info('🔄 Retrying with libx264 software encoder...')
+
+        // Clear cache and force software encoder
+        cachedEncoder = null
+
+        // Rebuild command with libx264
+        const fallbackEncoder = {
+          codec: 'libx264',
+          options: ['-preset', 'ultrafast', '-crf', '28'],
+        }
+
+        const fallbackCommand = [
+          `"${ffmpegPath}"`,
+          '-i', `"${backgroundPath}"`,
+          '-i', `"${videoPath}"`,
+          '-i', `"${audioPath}"`,
+          '-filter_complex', `"${filterGraph}"`,
+          '-map', '[video_out]',
+          '-map', '2:a:0',
+          '-c:v', fallbackEncoder.codec,
+          ...fallbackEncoder.options,
+          '-c:a', 'aac',
+          '-b:a', '192k',
+          '-y',
+          `"${outputPath}"`,
+        ].join(' ')
+
+        logger.debug(`Fallback command: ${fallbackCommand}`)
+
+        try {
+          const { stderr: fallbackStderr } = await execAsync(fallbackCommand, {
+            maxBuffer: 50 * 1024 * 1024,
+            timeout: 600000,
+          })
+
+          if (fallbackStderr) {
+            logger.debug(`FFmpeg fallback output: ${fallbackStderr}`)
+          }
+
+          logger.info(`✅ Video composition completed with libx264: ${outputPath}`)
+
+          return {
+            path: outputPath,
+            width: 1920,
+            height: 1080,
+            duration: 0,
+            fileSize: 0,
+            bitrate: '5000k',
+            codec: fallbackEncoder.codec,
+            createdAt: new Date(),
+          }
+        } catch (fallbackError) {
+          const fallbackMsg = fallbackError instanceof Error ? fallbackError.message : String(fallbackError)
+          logger.error(`❌ Fallback encoder also failed: ${fallbackMsg}`)
+          throw fallbackError
+        }
+      }
+
+      // Re-throw if it's a different error
+      throw ffmpegError
     }
   } catch (error) {
     logger.error('Failed to compose video', error)
@@ -488,30 +575,64 @@ export async function composeBannerVideo(
     const startTime = Date.now()
     onProgress?.(`Starting FFmpeg encoding for ${videoDuration}s video...`, 0)
 
-    // Execute FFmpeg
-    const { stderr } = await execAsync(command, {
-      maxBuffer: 50 * 1024 * 1024,
-      timeout: 600000, // 10 minutes - may need to increase for very long videos
+    // Execute FFmpeg using spawn for real-time progress tracking
+    await new Promise<void>((resolve, reject) => {
+      const ffmpegProcess = spawn(ffmpegPath, [
+        '-loop', '1',
+        '-i', bannerImagePath,
+        '-stream_loop', '-1',
+        '-i', cookingVideoPath,
+        '-i', backgroundMusicPath,
+        '-filter_complex', `${filterGraph}${audioFilterPart}`,
+        '-map', '[video_out]',
+        ...audioMapFlags,
+        '-c:v', encoder.codec,
+        ...encoder.options,
+        '-c:a', 'aac',
+        '-b:a', '192k',
+        '-t', `${videoDuration}`,
+        '-y',
+        outputPath,
+      ])
+
+      let lastProgress = 0
+
+      ffmpegProcess.stderr?.on('data', (data) => {
+        const output = data.toString()
+        logger.debug(`FFmpeg: ${output.substring(0, 200)}`)
+
+        // Parse FFmpeg output for progress: "frame=123 fps=30 q=28.0"
+        const frameMatch = output.match(/frame=\s*(\d+)/)
+        if (frameMatch) {
+          const currentFrame = parseInt(frameMatch[1])
+          const totalFrames = videoDuration * 30
+          const progress = Math.min(99, Math.round((currentFrame / totalFrames) * 100))
+
+          if (progress > lastProgress) {
+            lastProgress = progress
+            onProgress?.(`Encoding video: ${progress}%`, progress)
+          }
+        }
+      })
+
+      ffmpegProcess.on('close', (code) => {
+        const elapsedSeconds = Math.round((Date.now() - startTime) / 1000)
+        const fps = Math.round((videoDuration * 30) / elapsedSeconds)
+
+        if (code === 0) {
+          onProgress?.(`✅ FFmpeg encoding completed in ${elapsedSeconds}s`, 100)
+          logger.info(`✅ Banner video composition completed: ${outputPath} (${elapsedSeconds}s, ${fps} fps)`)
+          resolve()
+        } else {
+          reject(new Error(`FFmpeg process exited with code ${code}`))
+        }
+      })
+
+      ffmpegProcess.on('error', (err) => {
+        logger.error(`FFmpeg spawn error: ${err.message}`)
+        reject(err)
+      })
     })
-
-    const elapsedSeconds = Math.round((Date.now() - startTime) / 1000)
-    const fps = Math.round((videoDuration * 30) / elapsedSeconds)
-
-    if (stderr) {
-      logger.debug(`FFmpeg output: ${stderr}`)
-
-      // Try to extract encoding progress from stderr
-      const frameMatch = stderr.match(/frame=\s*(\d+)/)
-      if (frameMatch) {
-        const currentFrame = parseInt(frameMatch[1])
-        const totalFrames = videoDuration * 30
-        const progress = Math.round((currentFrame / totalFrames) * 100)
-        onProgress?.(`Encoding video... ${progress}% (${fps} fps)`, progress)
-      }
-    }
-
-    onProgress?.(`✅ FFmpeg encoding completed in ${elapsedSeconds}s`, 100)
-    logger.info(`✅ Banner video composition completed: ${outputPath} (${elapsedSeconds}s, ${fps} fps)`)
 
     return {
       path: outputPath,
