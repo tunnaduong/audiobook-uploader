@@ -51,9 +51,12 @@ async function createWindow() {
     })
   } else {
     // In production, load from bundled files
-    const rendererDist = path.join(__dirname, '../renderer')
+    const rendererDist = path.join(app.getAppPath(), 'dist/renderer')
     console.log(`📱 Loading production build from: ${rendererDist}`)
-    mainWindow.loadFile(path.join(rendererDist, 'index.html'))
+    mainWindow.loadFile(path.join(rendererDist, 'index.html')).catch((error) => {
+      console.error(`❌ Failed to load index.html from ${rendererDist}`)
+      console.error(`Error: ${error.message}`)
+    })
   }
 
   mainWindow.on('closed', () => {
