@@ -10,9 +10,7 @@ module.exports = {
 
   // Files to include in the build
   files: [
-    'dist/electron/**/*.js',
-    'dist/electron/**/*.d.ts',
-    'dist/renderer/**/*',
+    'dist/**/*',  // Include all compiled files
     'package.json',
     'node_modules/**/*',
   ],
@@ -25,6 +23,12 @@ module.exports = {
   // Disable ASAR packaging to avoid validation issues
   // Files will be included directly in the app bundle without archiving
   asar: false,
+
+  // Ensure electron-builder doesn't create ASAR despite config
+  // Some versions ignore asar: false, so we need extraMetadata
+  extraMetadata: {
+    main: 'dist/electron/main.js'
+  },
 
   // ============================================
   // Windows build configuration (builds first)
