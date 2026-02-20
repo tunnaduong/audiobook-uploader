@@ -35,10 +35,7 @@ module.exports = {
   // ============================================
   win: {
     target: [
-      {
-        target: 'portable',  // Portable EXE (no installation) - no code signing needed
-        arch: ['x64'],
-      },
+      'portable',  // Portable EXE (no installation) - no code signing needed
     ],
     certificateFile: null,
     certificatePassword: null,
@@ -62,15 +59,7 @@ module.exports = {
   // ============================================
   mac: {
     target: [
-      // Temporarily disabling DMG due to electron-builder v24.13.3 ASAR validation bug
-      // {
-      //   target: 'dmg',    // DMG installer
-      //   arch: ['x64', 'arm64'],
-      // },
-      {
-        target: 'zip',    // ZIP archive (works without ASAR validation issues)
-        arch: ['x64', 'arm64'],
-      },
+      'zip',    // ZIP archive (works without ASAR validation issues)
     ],
     category: 'public.app-category.utilities',
     icon: 'public/icon.png',
