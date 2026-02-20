@@ -57,5 +57,11 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "build": {
+    "files": [
+      "dist/**/*",
+      "node_modules/**/*"
+    ]
   }
 }
