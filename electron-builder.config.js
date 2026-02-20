@@ -3,9 +3,14 @@ module.exports = {
   productName: 'Audiobook Uploader',
   version: '0.1.0',
 
+  // Main entry point for Electron
+  main: 'dist/electron/main.js',
+  preload: 'dist/electron/preload.js',
+
   // Files to include in the build
   files: [
     'dist/electron/**/*.js',
+    'dist/electron/**/*.d.ts',
     'dist/renderer/**/*',
     'package.json',
     'node_modules/**/*',
