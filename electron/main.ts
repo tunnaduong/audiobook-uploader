@@ -3,6 +3,7 @@ import './preload-env'
 
 import { app, BrowserWindow, Menu } from 'electron'
 import path from 'path'
+import fs from 'fs'
 import { isDev } from './utils'
 import { setupIpcHandlers } from './events'
 
@@ -51,12 +52,40 @@ async function createWindow() {
     })
   } else {
     // In production, load from bundled files
-    const rendererDist = path.join(app.getAppPath(), 'dist/renderer')
-    console.log(`📱 Loading production build from: ${rendererDist}`)
-    mainWindow.loadFile(path.join(rendererDist, 'index.html')).catch((error) => {
-      console.error(`❌ Failed to load index.html from ${rendererDist}`)
-      console.error(`Error: ${error.message}`)
-    })
+    // Try multiple possible paths for the renderer
+    const appPath = app.getAppPath()
+    const possiblePaths = [
+      path.join(appPath, 'dist/renderer/index.html'),
+      path.join(appPath, '../renderer/index.html'),
+      path.join(__dirname, '../renderer/index.html'),
+      path.join(__dirname, '../../renderer/index.html'),
+    ]
+
+    let htmlPath: string | null = null
+    for (const p of possiblePaths) {
+      try {
+        const fs = require('fs')
+        if (fs.existsSync(p)) {
+          htmlPath = p
+          console.log(`📱 Found index.html at: ${p}`)
+          break
+        }
+      } catch (e) {
+        // Continue to next path
+      }
+    }
+
+    if (htmlPath) {
+      mainWindow.loadFile(htmlPath).catch((error) => {
+        console.error(`❌ Failed to load index.html from ${htmlPath}`)
+        console.error(`Error: ${error.message}`)
+      })
+    } else {
+      console.error(`❌ Could not find index.html in any of these locations:`)
+      possiblePaths.forEach((p) => console.error(`  - ${p}`))
+      console.error(`App path: ${appPath}`)
+      console.error(`__dirname: ${__dirname}`)
+    }
   }
 
   mainWindow.on('closed', () => {
