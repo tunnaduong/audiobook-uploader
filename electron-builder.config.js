@@ -3,9 +3,8 @@ module.exports = {
   productName: 'Audiobook Uploader',
   version: '0.1.0',
 
-  // Main entry point for Electron (used by Electron when running app)
-  // Note: With asar: false, this can be omitted as extraMetadata handles it
-  // Keeping it for compatibility but electron-builder won't validate it in ASAR
+  // Main entry point for Electron
+  // Note: When using asar: false with extraMetadata, electron-builder shouldn't validate ASAR
   main: 'dist/electron/main.js',
   preload: 'dist/electron/preload.js',
 
@@ -23,19 +22,10 @@ module.exports = {
     output: 'dist/release',
   },
 
-  // Disable ASAR to avoid file locking issues and packaging problems
-  // This tells electron-builder to include files as-is without creating app.asar
-  asar: false,
-  asarUnpack: [],
-
-  // Explicitly specify what goes into the app bundle
-  extraMetadata: {
-    main: 'dist/electron/main.js'
-  },
-
-  // Build option: detect the entry point from package.json main field
-  // This prevents electron-builder from validating against ASAR when asar is false
-  detectUpdateChannel: false,
+  // Use ASAR with everything unpacked (recommended approach)
+  // This resolves ASAR validation issues while keeping normal filesystem access
+  asar: true,
+  asarUnpack: ['**/*'],  // Unpack all files - keeps them in normal directory structure
 
   // ============================================
   // Windows build configuration (builds first)
@@ -53,7 +43,7 @@ module.exports = {
     ],
     certificateFile: null,
     certificatePassword: null,
-    asar: false,  // Explicitly disable ASAR for Windows
+    asar: true,  // Use ASAR with unpacked files
   },
 
   // Windows NSIS installer settings
@@ -86,8 +76,8 @@ module.exports = {
     category: 'public.app-category.utilities',
     icon: 'public/icon.png',
     signingIdentity: null,
-    asar: false,  // Disable ASAR for macOS
-    asarUnpack: [],
+    asar: true,  // Use ASAR format with unpacked files
+    asarUnpack: ['**/*'],  // Unpack all files for normal filesystem access
     // Force disable file validation that fails with ASAR
     cscLink: null,
     cscKeyPassword: null,
