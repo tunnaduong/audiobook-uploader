@@ -47,6 +47,7 @@ module.exports = {
     ],
     certificateFile: null,
     certificatePassword: null,
+    asar: false,  // Explicitly disable ASAR for Windows
   },
 
   // Windows NSIS installer settings
@@ -78,7 +79,11 @@ module.exports = {
     category: 'public.app-category.utilities',
     icon: 'public/icon.png',
     signingIdentity: null,
-    asar: false,  // Disable ASAR for macOS to avoid file packing issues
+    asar: false,  // Disable ASAR for macOS
+    asarUnpack: [],
+    // Force disable file validation that fails with ASAR
+    cscLink: null,
+    cscKeyPassword: null,
   },
 
   // macOS DMG installer settings
