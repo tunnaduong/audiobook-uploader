@@ -31,7 +31,9 @@ module.exports = {
     main: 'dist/electron/main.js'
   },
 
-  // Windows build configuration
+  // ============================================
+  // Windows build configuration (builds first)
+  // ============================================
   win: {
     target: [
       {
@@ -47,6 +49,7 @@ module.exports = {
     certificatePassword: null,
   },
 
+  // Windows NSIS installer settings
   nsis: {
     oneClick: false,
     allowToChangeInstallationDirectory: true,
@@ -58,7 +61,9 @@ module.exports = {
     installerHeaderIcon: 'public/icon.png',
   },
 
-  // macOS build configuration
+  // ============================================
+  // macOS build configuration (builds second)
+  // ============================================
   mac: {
     target: [
       {
@@ -76,6 +81,7 @@ module.exports = {
     asar: false,  // Disable ASAR for macOS to avoid file packing issues
   },
 
+  // macOS DMG installer settings
   dmg: {
     contents: [
       {
