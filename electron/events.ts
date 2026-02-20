@@ -4,7 +4,7 @@ import fs from 'fs'
 import { exec } from 'child_process'
 import { getAppDataPath, initializeDatabase, getProjectHistory, deleteProject as dbDeleteProject, getOutputsByProject } from '../src/utils/database'
 import { executePipeline } from '../src/services/pipeline'
-// import { parseEpubFile } from '../src/services/epub'  // TODO: Fix EPUB module imports
+import { parseEpubFile } from '../src/services/epub'
 import { onLog } from '../src/utils/logger'
 import type { PipelineConfig, AppSettings, PipelineResult } from '../src/types'
 
@@ -91,24 +91,24 @@ export function setupIpcHandlers(window: BrowserWindow) {
     })
   })
 
-  // EPUB operations - TODO: Fix EPUB module imports
-  // ipcMain.handle('parse-epub-file', async (_event, filePath: string) => {
-  //   try {
-  //     const metadata = await parseEpubFile(filePath)
-  //     console.log(`✅ EPUB parsed: ${metadata.title} (${metadata.chapters.length} chapters)`)
-  //     return {
-  //       success: true,
-  //       data: metadata,
-  //     }
-  //   } catch (error) {
-  //     const errorMsg = error instanceof Error ? error.message : String(error)
-  //     console.error(`❌ Failed to parse EPUB: ${errorMsg}`)
-  //     return {
-  //       success: false,
-  //       error: errorMsg,
-  //     }
-  //   }
-  // })
+  // EPUB operations
+  ipcMain.handle('parse-epub-file', async (_event, filePath: string) => {
+    try {
+      const metadata = await parseEpubFile(filePath)
+      console.log(`✅ EPUB parsed: ${metadata.title} (${metadata.chapters.length} chapters)`)
+      return {
+        success: true,
+        data: metadata,
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      console.error(`❌ Failed to parse EPUB: ${errorMsg}`)
+      return {
+        success: false,
+        error: errorMsg,
+      }
+    }
+  })
 
   // Settings
   ipcMain.handle('get-settings', async () => {
