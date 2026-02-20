@@ -21,9 +21,15 @@ module.exports = {
     output: 'dist/release',
   },
 
-  // Disable ASAR to avoid file locking issues on Windows
+  // Disable ASAR to avoid file locking issues and packaging problems
+  // This tells electron-builder to include files as-is without creating app.asar
   asar: false,
   asarUnpack: [],
+
+  // Explicitly specify what goes into the app bundle
+  extraMetadata: {
+    main: 'dist/electron/main.js'
+  },
 
   // Windows build configuration
   win: {
@@ -67,6 +73,7 @@ module.exports = {
     category: 'public.app-category.utilities',
     icon: 'public/icon.png',
     signingIdentity: null,
+    asar: false,  // Disable ASAR for macOS to avoid file packing issues
   },
 
   dmg: {
