@@ -45,7 +45,7 @@ jobs:
       - name: List artifacts
         run: |
           echo "=== Artifacts Created ==="
-          ls -la dist/release/
+          ls -la dist/ || echo "No artifacts found in dist/"
         shell: bash
 
       - name: Upload Windows artifacts
@@ -53,7 +53,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: windows-release
-          path: dist/release/*.exe*
+          path: dist/*.exe
           retention-days: 7
 
   create-release:

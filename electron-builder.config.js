@@ -17,7 +17,7 @@ module.exports = {
 
   directories: {
     buildResources: 'public',
-    output: 'dist/release',
+    output: 'dist',
   },
 
   // Disable ASAR packaging to avoid validation issues
