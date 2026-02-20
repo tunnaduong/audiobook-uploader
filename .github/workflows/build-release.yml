@@ -14,9 +14,6 @@ jobs:
           - os: windows-latest
             platform: windows
             artifact-name: Audiobook-Uploader-0.1.0-x64
-          - os: macos-latest
-            platform: macos
-            artifact-name: Audiobook-Uploader-0.1.0
 
     runs-on: ${{ matrix.os }}
 
@@ -45,11 +42,6 @@ jobs:
         run: npm run build:win
         shell: bash
 
-      - name: Build macOS
-        if: matrix.platform == 'macos'
-        run: npm run build:mac
-        shell: bash
-
       - name: List artifacts
         run: |
           echo "=== Artifacts Created ==="
@@ -64,15 +56,6 @@ jobs:
           path: dist/release/*.exe*
           retention-days: 7
 
-      - name: Upload macOS artifacts
-        if: matrix.platform == 'macos'
-        uses: actions/upload-artifact@v6
-        with:
-          name: macos-release
-          path: |
-            dist/release/*.dmg
-            dist/release/*.zip
-
   create-release:
     needs: build
     runs-on: ubuntu-latest
@@ -86,12 +69,6 @@ jobs:
         with:
           name: windows-release
           path: ./windows-release
-
-      - name: Download macOS artifacts
-        uses: actions/download-artifact@v6
-        with:
-          name: macos-release
-          path: ./macos-release
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
