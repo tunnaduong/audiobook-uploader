@@ -14,9 +14,6 @@ jobs:
           - os: windows-latest
             platform: windows
             artifact-name: Audiobook-Uploader-0.1.0-x64
-          - os: macos-latest
-            platform: macos
-            artifact-name: Audiobook-Uploader-0.1.0
 
     runs-on: ${{ matrix.os }}
 
@@ -45,11 +42,6 @@ jobs:
         run: npm run build:win
         shell: bash
 
-      - name: Build macOS
-        if: matrix.platform == 'macos'
-        run: npm run build:mac
-        shell: bash
-
       - name: List artifacts
         run: |
           echo "=== Artifacts Created ==="
@@ -63,15 +55,6 @@ jobs:
           name: windows-release
           path: dist/release/*.exe*
           retention-days: 7
-
-      - name: Upload macOS artifacts
-        if: matrix.platform == 'macos'
-        uses: actions/upload-artifact@v6
-        with:
-          name: macos-release
-          path: |
-            dist/release/*.dmg
-            dist/release/*.zip
 
   create-release:
     needs: build
@@ -92,7 +75,6 @@ jobs:
         with:
           files: |
             ./windows-release/*
-            ./macos-release/*
           body: |
             # Audiobook Uploader Release
 
@@ -102,22 +84,12 @@ jobs:
             - **Audiobook-Uploader-0.1.0-x64.exe** - NSIS Installer (Professional setup wizard)
             - **Audiobook-Uploader-0.1.0-x64.exe** - Portable version (no installation required)
 
-            ### macOS
-            - **Audiobook-Uploader-0.1.0.dmg** - DMG Installer (drag & drop to Applications)
-            - **Audiobook-Uploader-0.1.0.zip** - ZIP Archive (alternative distribution)
-
             ## Installation Instructions
 
             ### Windows
             1. Download `Audiobook-Uploader-0.1.0-x64.exe`
             2. Run the installer or portable executable
             3. Follow the setup wizard (if using installer)
-
-            ### macOS
-            1. Download `Audiobook-Uploader-0.1.0.dmg`
-            2. Open the DMG file
-            3. Drag Audiobook Uploader to Applications folder
-            4. Launch from Applications
 
             ## Features Included
             - ✅ Video composition with FFmpeg
@@ -127,7 +99,7 @@ jobs:
             - ✅ Project history and settings persistence
 
             ## System Requirements
-            - Windows 10+ (64-bit) or macOS 10.13+ (Intel/Apple Silicon)
+            - Windows 10+ (64-bit)
             - FFmpeg installed on system (auto-detection)
             - Internet connection for API services
             - Google account for YouTube upload feature
