@@ -11,9 +11,9 @@ const api: ElectronAPI = {
   getVideoDuration: (filePath: string) => ipcRenderer.invoke('get-video-duration', filePath),
   getNextVideoFolder: () => ipcRenderer.invoke('get-next-video-folder'),
 
-  // EPUB operations
-  parseEpubFile: (filePath: string): Promise<{ success: boolean; data?: EpubMetadata; error?: string }> =>
-    ipcRenderer.invoke('parse-epub-file', filePath),
+  // EPUB operations (disabled - not part of Option 1)
+  // parseEpubFile: (filePath: string): Promise<{ success: boolean; data?: EpubMetadata; error?: string }> =>
+  //   ipcRenderer.invoke('parse-epub-file', filePath),
 
   // Pipeline operations
   startPipeline: (config: PipelineConfig) => ipcRenderer.invoke('start-pipeline', config),

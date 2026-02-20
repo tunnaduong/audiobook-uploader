@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import type { EpubMetadata } from '../types'
-import { EpubImporter } from './EpubImporter'
-import { ChapterSelector } from './ChapterSelector'
+// Note: EpubImporter and ChapterSelector are not imported since EPUB is disabled in Option 1
+// The code still references them in disabled sections (false && ...) so TypeScript types remain valid
 import './Dashboard.css'
 
 // Helper function to extract and format chapter information from story text
@@ -563,8 +563,8 @@ function HomeTab({
 
   return (
     <div className="home-tab">
-      {/* EPUB Importer Modal */}
-      {showEpubImporter && (
+      {/* EPUB Importer Modal - Disabled (not part of Option 1) */}
+      {false && showEpubImporter && (
         <div className="epub-modal-overlay">
           <div className="epub-modal">
             <EpubImporter
@@ -575,8 +575,8 @@ function HomeTab({
         </div>
       )}
 
-      {/* Chapter Selector Modal */}
-      {showChapterSelector && state.epubMetadata && (
+      {/* Chapter Selector Modal - Disabled (not part of Option 1) */}
+      {false && showChapterSelector && state.epubMetadata && (
         <div className="epub-modal-overlay">
           <div className="epub-modal">
             <ChapterSelector
@@ -588,27 +588,8 @@ function HomeTab({
         </div>
       )}
 
-      {/* EPUB/Manual Input Toggle */}
-      <div className="input-mode-selector">
-        <button
-          className={`mode-button ${!state.useEpubInput ? 'active' : ''}`}
-          onClick={() => setState({ ...state, useEpubInput: false })}
-          disabled={isProcessing}
-        >
-          ✏️ Nhập Thủ Công
-        </button>
-        <button
-          className={`mode-button ${state.useEpubInput ? 'active' : ''}`}
-          onClick={() => setState({ ...state, useEpubInput: true })}
-          disabled={isProcessing}
-        >
-          📖 Nhập từ EPUB
-        </button>
-      </div>
-
-      {/* Manual Input Section */}
-      {!state.useEpubInput && (
-        <div className="form-section">
+      {/* Manual Input Section - Always shown (EPUB disabled, not part of Option 1) */}
+      <div className="form-section">
           <h2>Nội Dung Truyện</h2>
           <textarea
             className="story-input"
@@ -618,11 +599,10 @@ function HomeTab({
             disabled={isProcessing}
           />
           <div className="form-info">{state.storyText.length} ký tự</div>
-        </div>
-      )}
+      </div>
 
-      {/* EPUB Input Section */}
-      {state.useEpubInput && (
+      {/* EPUB Input Section - Disabled (not part of Option 1) */}
+      {false && state.useEpubInput && (
         <div className="form-section">
           <h2>Tệp EPUB</h2>
           {!state.epubMetadata ? (

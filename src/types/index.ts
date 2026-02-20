@@ -241,7 +241,7 @@ export interface ElectronAPI {
   openPath(folderPath: string): Promise<string>
   getVideoDuration(filePath: string): Promise<string>
   getNextVideoFolder(): Promise<{ folderPath: string; videoNum: number }>
-  parseEpubFile(filePath: string): Promise<{ success: boolean; data?: EpubMetadata; error?: string }>
+  // parseEpubFile(filePath: string): Promise<{ success: boolean; data?: EpubMetadata; error?: string }>  // Disabled - not part of Option 1
   startPipeline(config: PipelineConfig): Promise<PipelineResult>
   cancelPipeline(): Promise<void>
   getPipelineProgress(): Promise<PipelineProgress>
