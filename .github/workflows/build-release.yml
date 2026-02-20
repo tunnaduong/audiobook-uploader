@@ -39,7 +39,7 @@ jobs:
 
       - name: Build Windows
         if: matrix.platform == 'windows'
-        run: npm run build:win
+        run: npm run build:win -- --publish never
         shell: bash
 
       - name: List artifacts
