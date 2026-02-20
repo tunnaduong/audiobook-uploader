@@ -81,7 +81,9 @@
       "certificateFile": null,
       "certificatePassword": null,
       "asar": false,
-      "forceCodeSigning": false
+      "forceCodeSigning": false,
+      "signingHashAlgorithms": null,
+      "sign": null
     },
     "nsis": {
       "oneClick": false,

@@ -5,9 +5,21 @@
 
 import { createHash } from 'crypto'
 import axios, { AxiosError } from 'axios'
-import { ipcRenderer } from 'electron'
 import { YouTubeTokens as YouTubeTokensType } from '../types'
 import { createLogger } from '../utils/logger'
+
+// Lazy-load ipcRenderer to avoid issues when module is imported in non-renderer contexts
+let ipcRendererInstance: any = null
+const getIpcRenderer = () => {
+  if (!ipcRendererInstance) {
+    try {
+      ipcRendererInstance = require('electron').ipcRenderer
+    } catch (e) {
+      throw new Error('ipcRenderer is not available - this function must be called from the renderer process')
+    }
+  }
+  return ipcRendererInstance
+}
 
 const logger = createLogger('youtube-auth')
 
@@ -168,6 +180,7 @@ const YOUTUBE_TOKENS_KEY = 'youtube-tokens'
  */
 export async function saveYouTubeTokens(tokens: YouTubeTokensType): Promise<void> {
   try {
+    const ipcRenderer = getIpcRenderer()
     const tokenString = JSON.stringify(tokens)
     await ipcRenderer.invoke('save-secure-data', YOUTUBE_TOKENS_KEY, tokenString)
     logger.info('✅ YouTube tokens saved to secure storage')
@@ -182,6 +195,7 @@ export async function saveYouTubeTokens(tokens: YouTubeTokensType): Promise<void
  */
 export async function getYouTubeTokens(): Promise<YouTubeTokensType | null> {
   try {
+    const ipcRenderer = getIpcRenderer()
     const tokenString = await ipcRenderer.invoke('get-secure-data', YOUTUBE_TOKENS_KEY)
     if (!tokenString) {
       return null
@@ -198,6 +212,7 @@ export async function getYouTubeTokens(): Promise<YouTubeTokensType | null> {
  */
 export async function deleteYouTubeTokens(): Promise<void> {
   try {
+    const ipcRenderer = getIpcRenderer()
     await ipcRenderer.invoke('delete-secure-data', YOUTUBE_TOKENS_KEY)
     logger.info('✅ YouTube tokens deleted from secure storage')
   } catch (error) {
