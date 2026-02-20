@@ -22,10 +22,9 @@ module.exports = {
     output: 'dist/release',
   },
 
-  // Use ASAR with everything unpacked (recommended approach)
-  // This resolves ASAR validation issues while keeping normal filesystem access
-  asar: true,
-  asarUnpack: ['**/*'],  // Unpack all files - keeps them in normal directory structure
+  // Disable ASAR packaging to avoid validation issues
+  // Files will be included directly in the app bundle without archiving
+  asar: false,
 
   // ============================================
   // Windows build configuration (builds first)
@@ -43,7 +42,7 @@ module.exports = {
     ],
     certificateFile: null,
     certificatePassword: null,
-    asar: true,  // Use ASAR with unpacked files
+    asar: false,  // Disable ASAR for Windows
   },
 
   // Windows NSIS installer settings
@@ -76,8 +75,7 @@ module.exports = {
     category: 'public.app-category.utilities',
     icon: 'public/icon.png',
     signingIdentity: null,
-    asar: true,  // Use ASAR format with unpacked files
-    asarUnpack: ['**/*'],  // Unpack all files for normal filesystem access
+    asar: false,  // Disable ASAR for macOS
     // Force disable file validation that fails with ASAR
     cscLink: null,
     cscKeyPassword: null,
