@@ -1,4 +1,4 @@
-import { ipcMain, dialog, BrowserWindow } from 'electron'
+import { ipcMain, dialog, BrowserWindow, safeStorage } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import { exec } from 'child_process'
@@ -448,6 +448,96 @@ export function setupIpcHandlers(window: BrowserWindow) {
         success: false,
         error: errorMessage,
       }
+    }
+  })
+
+  // Secure data storage handlers using Electron's built-in safeStorage
+  ipcMain.handle('save-secure-data', async (_event, key: string, value: string) => {
+    try {
+      const encryptedValue = safeStorage.encryptString(value)
+      const configPath = path.join(getAppDataPath(), '.secure-config')
+
+      // Ensure config directory exists
+      if (!fs.existsSync(getAppDataPath())) {
+        fs.mkdirSync(getAppDataPath(), { recursive: true })
+      }
+
+      // Read existing data
+      let data: Record<string, string> = {}
+      if (fs.existsSync(configPath)) {
+        try {
+          const content = fs.readFileSync(configPath, 'utf8')
+          data = JSON.parse(content)
+        } catch (e) {
+          // Ignore parse errors, start fresh
+        }
+      }
+
+      // Update with new value (store as base64-encoded encrypted buffer)
+      data[key] = encryptedValue.toString('base64')
+
+      // Write back
+      fs.writeFileSync(configPath, JSON.stringify(data), 'utf8')
+      console.log(`✅ Secure data saved for key: ${key}`)
+      return { success: true }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      console.error(`❌ Failed to save secure data: ${errorMessage}`)
+      throw error
+    }
+  })
+
+  ipcMain.handle('get-secure-data', async (_event, key: string) => {
+    try {
+      const configPath = path.join(getAppDataPath(), '.secure-config')
+
+      if (!fs.existsSync(configPath)) {
+        return null
+      }
+
+      // Read existing data
+      const content = fs.readFileSync(configPath, 'utf8')
+      const data = JSON.parse(content) as Record<string, string>
+
+      if (!data[key]) {
+        return null
+      }
+
+      // Decrypt the value
+      const encryptedBuffer = Buffer.from(data[key], 'base64')
+      const decryptedValue = safeStorage.decryptString(encryptedBuffer)
+      console.log(`✅ Secure data retrieved for key: ${key}`)
+      return decryptedValue
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      console.error(`❌ Failed to get secure data: ${errorMessage}`)
+      return null
+    }
+  })
+
+  ipcMain.handle('delete-secure-data', async (_event, key: string) => {
+    try {
+      const configPath = path.join(getAppDataPath(), '.secure-config')
+
+      if (!fs.existsSync(configPath)) {
+        return { success: true }
+      }
+
+      // Read existing data
+      const content = fs.readFileSync(configPath, 'utf8')
+      const data = JSON.parse(content) as Record<string, string>
+
+      // Delete the key
+      delete data[key]
+
+      // Write back
+      fs.writeFileSync(configPath, JSON.stringify(data), 'utf8')
+      console.log(`✅ Secure data deleted for key: ${key}`)
+      return { success: true }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      console.error(`❌ Failed to delete secure data: ${errorMessage}`)
+      return { success: false, error: errorMessage }
     }
   })
 }

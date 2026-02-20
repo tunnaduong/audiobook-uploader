@@ -5,7 +5,7 @@
 
 import { createHash } from 'crypto'
 import axios, { AxiosError } from 'axios'
-import keytar from 'keytar'
+import { ipcRenderer } from 'electron'
 import { YouTubeTokens as YouTubeTokensType } from '../types'
 import { createLogger } from '../utils/logger'
 
@@ -160,14 +160,16 @@ export class YouTubeOAuthManager {
   }
 }
 
+// Token storage: using IPC call to main process for secure storage via Electron safeStorage
+const YOUTUBE_TOKENS_KEY = 'youtube-tokens'
+
 /**
- * Save YouTube tokens to secure OS credential storage
+ * Save YouTube tokens to secure storage via Electron main process
  */
 export async function saveYouTubeTokens(tokens: YouTubeTokensType): Promise<void> {
   try {
-    await keytar.setPassword('audiobook-uploader', 'youtube-access-token', tokens.accessToken)
-    await keytar.setPassword('audiobook-uploader', 'youtube-refresh-token', tokens.refreshToken)
-    // Note: expiresAt is not sensitive so we don't store it in keytar
+    const tokenString = JSON.stringify(tokens)
+    await ipcRenderer.invoke('save-secure-data', YOUTUBE_TOKENS_KEY, tokenString)
     logger.info('✅ YouTube tokens saved to secure storage')
   } catch (error) {
     logger.error(`❌ Failed to save YouTube tokens: ${error}`)
@@ -176,24 +178,15 @@ export async function saveYouTubeTokens(tokens: YouTubeTokensType): Promise<void
 }
 
 /**
- * Retrieve YouTube tokens from secure OS credential storage
+ * Retrieve YouTube tokens from secure storage via Electron main process
  */
 export async function getYouTubeTokens(): Promise<YouTubeTokensType | null> {
   try {
-    const accessToken = await keytar.getPassword('audiobook-uploader', 'youtube-access-token')
-    const refreshToken = await keytar.getPassword('audiobook-uploader', 'youtube-refresh-token')
-
-    if (!accessToken || !refreshToken) {
+    const tokenString = await ipcRenderer.invoke('get-secure-data', YOUTUBE_TOKENS_KEY)
+    if (!tokenString) {
       return null
     }
-
-    return {
-      accessToken,
-      refreshToken,
-      expiresAt: 0, // Will be refreshed on next use
-      expiresIn: 3600,
-      tokenType: 'Bearer',
-    }
+    return JSON.parse(tokenString) as YouTubeTokensType
   } catch (error) {
     logger.error(`❌ Failed to retrieve YouTube tokens: ${error}`)
     return null
@@ -201,12 +194,11 @@ export async function getYouTubeTokens(): Promise<YouTubeTokensType | null> {
 }
 
 /**
- * Delete YouTube tokens from secure storage
+ * Delete YouTube tokens from secure storage via Electron main process
  */
 export async function deleteYouTubeTokens(): Promise<void> {
   try {
-    await keytar.deletePassword('audiobook-uploader', 'youtube-access-token')
-    await keytar.deletePassword('audiobook-uploader', 'youtube-refresh-token')
+    await ipcRenderer.invoke('delete-secure-data', YOUTUBE_TOKENS_KEY)
     logger.info('✅ YouTube tokens deleted from secure storage')
   } catch (error) {
     logger.error(`❌ Failed to delete YouTube tokens: ${error}`)
