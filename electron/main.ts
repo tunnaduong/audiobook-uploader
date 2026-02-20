@@ -64,7 +64,6 @@ async function createWindow() {
     let htmlPath: string | null = null
     for (const p of possiblePaths) {
       try {
-        const fs = require('fs')
         if (fs.existsSync(p)) {
           htmlPath = p
           console.log(`📱 Found index.html at: ${p}`)

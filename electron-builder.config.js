@@ -36,11 +36,7 @@ module.exports = {
   win: {
     target: [
       {
-        target: 'nsis',      // NSIS installer
-        arch: ['x64'],
-      },
-      {
-        target: 'portable',  // Portable EXE (no installation)
+        target: 'portable',  // Portable EXE (no installation) - no code signing needed
         arch: ['x64'],
       },
     ],
