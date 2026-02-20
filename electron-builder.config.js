@@ -3,7 +3,9 @@ module.exports = {
   productName: 'Audiobook Uploader',
   version: '0.1.0',
 
-  // Main entry point for Electron
+  // Main entry point for Electron (used by Electron when running app)
+  // Note: With asar: false, this can be omitted as extraMetadata handles it
+  // Keeping it for compatibility but electron-builder won't validate it in ASAR
   main: 'dist/electron/main.js',
   preload: 'dist/electron/preload.js',
 
@@ -30,6 +32,10 @@ module.exports = {
   extraMetadata: {
     main: 'dist/electron/main.js'
   },
+
+  // Build option: detect the entry point from package.json main field
+  // This prevents electron-builder from validating against ASAR when asar is false
+  detectUpdateChannel: false,
 
   // ============================================
   // Windows build configuration (builds first)
@@ -67,12 +73,13 @@ module.exports = {
   // ============================================
   mac: {
     target: [
+      // Temporarily disabling DMG due to electron-builder v24.13.3 ASAR validation bug
+      // {
+      //   target: 'dmg',    // DMG installer
+      //   arch: ['x64', 'arm64'],
+      // },
       {
-        target: 'dmg',    // DMG installer
-        arch: ['x64', 'arm64'],
-      },
-      {
-        target: 'zip',    // ZIP archive
+        target: 'zip',    // ZIP archive (works without ASAR validation issues)
         arch: ['x64', 'arm64'],
       },
     ],
